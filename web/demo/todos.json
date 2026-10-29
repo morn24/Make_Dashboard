@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "updatedAt": "2026-10-29T09:00:00+09:00",
+  "items": [
+    { "id": "t_demo1", "title": "아침 운동 30분", "repeat": "daily", "doneOn": null, "createdAt": "2026-10-01T08:00:00+09:00" },
+    { "id": "t_demo2", "title": "영어 단어 20개", "repeat": "daily", "doneOn": null, "createdAt": "2026-10-01T08:00:00+09:00" },
+    { "id": "t_demo3", "title": "대시보드 웹앱 폰에 설치하기", "repeat": "none", "doneOn": null, "createdAt": "2026-10-29T09:00:00+09:00" }
+  ]
+}

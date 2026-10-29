@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>My Dashboard</title>
+  <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <div class="date" id="today"></div>
+      <div class="sync" id="sync">불러오는 중…</div>
+    </div>
+    <div class="top-actions">
+      <button class="icon-btn" id="refresh" aria-label="새로고침" title="새로고침">⟳</button>
+      <button class="icon-btn" id="open-settings" aria-label="설정" title="설정">⚙</button>
+    </div>
+  </header>
+
+  <div class="banner" id="demo-banner" hidden>
+    데모 모드예요. 변경 내용이 저장되지 않아요.
+    <button class="link" id="banner-settings">연결 설정하기</button>
+  </div>
+
+  <main>
+    <section class="card" aria-labelledby="todo-title">
+      <div class="section-head">
+        <h2 id="todo-title">오늘 할 일</h2>
+        <span class="count" id="todo-count"></span>
+      </div>
+      <div class="bar" aria-hidden="true"><div class="bar-fill" id="todo-bar"></div></div>
+
+      <ul class="todos" id="todo-list"></ul>
+      <p class="empty" id="todo-empty" hidden>할 일이 없어요. 아래에서 추가해 보세요.</p>
+
+      <form class="add" id="add-form" autocomplete="off">
+        <input id="add-title" type="text" placeholder="할 일 추가" maxlength="120" required>
+        <label class="repeat" title="매일 반복">
+          <input id="add-daily" type="checkbox">
+          <span>매일</span>
+        </label>
+        <button type="submit" class="primary">추가</button>
+      </form>
+      <button class="link small" id="clean-done" hidden>지난 완료 항목 정리</button>
+    </section>
+
+    <section aria-labelledby="proj-title">
+      <div class="section-head pad">
+        <h2 id="proj-title">프로젝트</h2>
+        <span class="count" id="proj-count"></span>
+      </div>
+      <div id="proj-list" class="projects"></div>
+      <p class="empty" id="proj-empty" hidden>아직 프로젝트가 없어요. PC에서 작업하면 여기에 나타나요.</p>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <dialog id="settings">
+    <form method="dialog" id="settings-form">
+      <h2>연결 설정</h2>
+      <p class="help">할 일과 진행 상황을 저장하는 비공개 GitHub 저장소 정보를 넣어주세요. 토큰은 이 기기에만 저장돼요.</p>
+      <label>소유자 (owner)<input id="s-owner" required placeholder="morn24"></label>
+      <label>저장소 (repo)<input id="s-repo" required placeholder="dashboard-data"></label>
+      <label>브랜치<input id="s-branch" required placeholder="main"></label>
+      <label>토큰 (Fine-grained PAT)<input id="s-token" type="password" required placeholder="github_pat_..."></label>
+      <p class="help">권한: 위 저장소 하나만, <b>Contents: Read and write</b>.</p>
+      <p class="error" id="s-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="link" id="s-clear">연결 해제</button>
+        <span class="grow"></span>
+        <button type="button" id="s-cancel">취소</button>
+        <button type="submit" class="primary" id="s-save">연결 확인 후 저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

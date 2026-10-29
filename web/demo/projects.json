@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "updatedAt": "2026-10-29T09:00:00+09:00",
+  "projects": [
+    {
+      "id": "make-dashboard",
+      "name": "Make_Dashboard",
+      "tool": "claude-code",
+      "status": "active",
+      "progress": 50,
+      "current": "웹앱 대시보드 완성, GitHub Pages 배포 준비",
+      "next": ["PC 자동 업데이트 스크립트 만들기", "안드로이드 위젯 앱 만들기"],
+      "summary": "데이터 구조 설계 + 웹앱 1차 완성",
+      "updatedAt": "2026-10-29T09:00:00+09:00"
+    },
+    {
+      "id": "sample-codex",
+      "name": "예시 프로젝트 (Codex)",
+      "tool": "codex",
+      "status": "paused",
+      "progress": 20,
+      "current": "요구사항 정리",
+      "next": ["화면 설계"],
+      "summary": "",
+      "updatedAt": "2026-10-27T21:00:00+09:00"
+    }
+  ]
+}
