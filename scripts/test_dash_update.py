@@ -189,6 +189,12 @@ class DashUpdateTest(unittest.TestCase):
         self.assertEqual(p['id'], 'my-project-v2')
         self.assertEqual(p['name'], 'My Project_v2')
 
+    def test_project_folder_reads_korean_git_path(self):
+        done = mock.Mock(returncode=0, stdout='G:/내 드라이브/Obsidian/PMR-Wiki\n')
+        with mock.patch.object(dash_update.subprocess, 'run', return_value=done) as run:
+            self.assertEqual(dash_update.project_folder().name, 'PMR-Wiki')
+        self.assertEqual(run.call_args.kwargs['encoding'], 'utf-8')
+
     def test_conflict_then_retry_succeeds(self):
         self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [sample_project('a')]})
         # 이 스크립트가 쓰기 직전에 폰이 프로젝트 b를 추가한 상황

@@ -113,8 +113,8 @@ def project_folder():
     try:
         out = subprocess.run(
             ['git', 'rev-parse', '--show-toplevel'],
-            capture_output=True, text=True, timeout=10,
-        )
+            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10,
+        )  # git은 경로를 UTF-8로 출력한다 (Windows 기본 cp949로 읽으면 한글 경로에서 깨짐)
         if out.returncode == 0 and out.stdout.strip():
             return Path(out.stdout.strip())
     except (OSError, subprocess.SubprocessError):
