@@ -13,6 +13,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -76,6 +77,36 @@ class DashboardStoreTest {
         assertEquals("sha-2", successful.sha)
         assertEquals(200L, successful.lastSuccessAtMillis)
         assertNull(successful.error)
+    }
+
+    @Test
+    fun conditionalCacheWritesRejectResponsesFromAnOlderSettingsGeneration() = runBlocking {
+        val currentGeneration = store.saveSettings(DashboardSettings(repository = "new-repository"))
+        assertEquals(1L, currentGeneration)
+
+        assertFalse(
+            store.saveSuccessfulFileIfGeneration(
+                DashboardFile.TODOS,
+                "{\"items\":[]}",
+                "stale-sha",
+                100L,
+                expectedGeneration = 0L,
+            ),
+        )
+        assertNull(store.cached(DashboardFile.TODOS).rawJson)
+        assertFalse(store.recordFileErrorIfGeneration(DashboardFile.TODOS, "stale error", expectedGeneration = 0L))
+        assertNull(store.cached(DashboardFile.TODOS).error)
+
+        assertTrue(
+            store.saveSuccessfulFileIfGeneration(
+                DashboardFile.TODOS,
+                "{\"items\":[]}",
+                "current-sha",
+                200L,
+                expectedGeneration = currentGeneration,
+            ),
+        )
+        assertEquals("current-sha", store.cached(DashboardFile.TODOS).sha)
     }
 
     @Test

@@ -80,6 +80,17 @@
 - 수동 확인: Android Keystore UI·기기 복원 동작과 Galaxy S25에서의 배터리 설정 이동은 아직 기기에서 확인하지 않음
 - APK: `android/app/build/outputs/apk/debug/app-debug.apk`
 
+### 5단계: 읽기 전용 3크기 위젯과 캐시 표시
+
+- 실행일: 2026-10-31 (KST)
+- 명령(Windows, `android/`에서 실행): `gradlew.bat test assembleDebug`
+- 결과: **성공**, 최종 실행 `BUILD SUCCESSFUL in 5s`. 구현 과정에서 Glance API·컴포저블 참조 오류와 새 테스트의 import 누락 등 컴파일 오류 네 차례를 수정한 뒤 최종 명령이 통과
+- 테스트: JUnit 41개 통과, 실패·오류 0개. 원본 JSON 보존 캐시, 한글·이모지 매핑, 파일별 성공 시각, 네트워크 실패 시 이전 유효 캐시 유지, 미지원 문서 버전 거부, 설정 세대가 바뀐 뒤 이전 응답의 캐시 쓰기 차단, 기본 설정·Keystore 재연결 안내를 확인
+- 구현: `SizeMode.Responsive` 후보 크기 140×140 / 300×140 / 300×300dp, Glance 동적 색상 테마, 설정 전 안내, 제목/빈 곳의 웹앱 열기, 새로고침, 크기별 할 일·일정·프로젝트 표시. calendar 404에서는 일정 구역을 숨김
+- 한계: ADB 에뮬레이터나 Galaxy S25의 실제 렌더링·리사이즈·다크 모드는 확인하지 않음. 후보 dp 크기와 줄임 동작은 S25 화면에서 확인 필요
+- 런타임 경고: DataStore 1.3.0 내부 protobuf의 JBR 25 `sun.misc.Unsafe` 폐기 경고가 계속 출력됐으나 테스트와 APK 빌드는 성공
+- APK: `android/app/build/outputs/apk/debug/app-debug.apk`
+
 ## 실제 기기 확인
 
 실기기 확인 전. 에뮬레이터와 Galaxy S25의 렌더링 확인은 사용자가 이어서 할 수 있도록 설치 안내에 절차를 남길 예정이다.

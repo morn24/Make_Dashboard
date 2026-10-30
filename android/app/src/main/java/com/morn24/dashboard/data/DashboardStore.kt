@@ -85,8 +85,38 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
         }
     }
 
+    /** Stores a response only if it still belongs to the current saved connection. */
+    suspend fun saveSuccessfulFileIfGeneration(
+        file: DashboardFile,
+        rawJson: String,
+        sha: String?,
+        atMillis: Long,
+        expectedGeneration: Long,
+    ): Boolean {
+        var saved = false
+        dataStore.edit { preferences ->
+            if ((preferences[SettingsKeys.generation] ?: 0L) != expectedGeneration) return@edit
+            preferences[cacheRawKey(file)] = rawJson
+            sha?.let { preferences[cacheShaKey(file)] = it } ?: preferences.remove(cacheShaKey(file))
+            preferences[cacheSuccessKey(file)] = atMillis
+            preferences.remove(cacheErrorKey(file))
+            saved = true
+        }
+        return saved
+    }
+
     suspend fun recordFileError(file: DashboardFile, safeMessage: String) {
         dataStore.edit { it[cacheErrorKey(file)] = safeMessage }
+    }
+
+    suspend fun recordFileErrorIfGeneration(file: DashboardFile, safeMessage: String, expectedGeneration: Long): Boolean {
+        var recorded = false
+        dataStore.edit { preferences ->
+            if ((preferences[SettingsKeys.generation] ?: 0L) != expectedGeneration) return@edit
+            preferences[cacheErrorKey(file)] = safeMessage
+            recorded = true
+        }
+        return recorded
     }
 
     private fun clearCachedFiles(preferences: MutablePreferences) {
