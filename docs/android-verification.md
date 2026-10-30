@@ -42,7 +42,7 @@
 
 - 실행일: 2026-10-31 (KST)
 - 실행 위치: `android/`
-- 명령: `./gradlew.bat test assembleDebug` (PowerShell에서는 `.\gradlew.bat test assembleDebug`)
+- 명령(Windows, `android/`에서 실행): `gradlew.bat test assembleDebug`
 - 환경: `JAVA_HOME=C:/Program Files/Android/Android Studio/jbr`, `ANDROID_HOME=C:/Users/morn/AppData/Local/Android/Sdk`
 - 결과: **성공**, Gradle 9.7.1, `BUILD SUCCESSFUL in 4m 23s`
 - 테스트: 아직 단위 테스트 소스가 없어 `testDebugUnitTest NO-SOURCE`; domain 테스트는 2단계부터 추가
@@ -51,6 +51,15 @@
 - JBR 확인: OpenJDK 25.0.2 (JetBrains)
 - SDK 확인: Android 13/API 33, Android 15/API 35, Android 16/API 36, Android 17/API 37 설치
 - ADB: `adb version`은 37.0.1; 기기 연결 상태와 USB 승인은 미확인
+
+### 2단계: domain 규칙과 단위 테스트
+
+- 실행일: 2026-10-31 (KST)
+- 명령(Windows, `android/`에서 실행): `gradlew.bat test assembleDebug`
+- 결과: **성공**, `BUILD SUCCESSFUL in 6s`
+- 테스트: JUnit 15개 통과. daily/none 날짜 규칙·지난 완료 숨김·표시 분모·안정 순서·빈 목록, 프로젝트 상태/checked 다음 과제, 종일 end 미포함·다일·자정 겹침·일정 정렬·진행 중 다음 일정·지난 일정 제외·DST 날짜 경계를 확인
+- 수정 이력: 첫 실행에서 테스트 기준 시각이 일정 시작 전인 fixture 오류 1건을 발견해 바로잡고 전체 명령을 다시 통과시킴
+- APK: `android/app/build/outputs/apk/debug/app-debug.apk`
 
 ## 실제 기기 확인
 
