@@ -47,8 +47,8 @@ class GitHubRepo(
     private val apiBaseUrl: HttpUrl = "https://api.github.com/".toHttpUrl(),
     private val clock: Clock = Clock.systemDefaultZone(),
     private val sleeper: (Long) -> Unit = Thread::sleep,
-) {
-    fun read(file: DashboardFile): RemoteRead = readPath(file.path)
+) : DashboardRepository {
+    override fun read(file: DashboardFile): RemoteRead = readPath(file.path)
 
     fun readPath(path: String): RemoteRead {
         val request = Request.Builder()
@@ -78,7 +78,7 @@ class GitHubRepo(
         }
     }
 
-    fun updateTodo(todoId: String, targetDoneOn: String?): MutationResult {
+    override fun updateTodo(todoId: String, targetDoneOn: String?): MutationResult {
         repeat(MAX_PUT_ATTEMPTS) { attempt ->
             val remote = read(DashboardFile.TODOS)
             if (remote !is RemoteRead.Found) throw MissingRemoteFileException(DashboardFile.TODOS.path)

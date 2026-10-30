@@ -71,6 +71,15 @@
 - 런타임 경고: DataStore 1.3.0의 내부 protobuf가 JBR 25에서 `sun.misc.Unsafe` 폐기 경고를 출력했으나 명령은 성공. 이후 Android 기기에서의 동작은 미확인
 - APK: `android/app/build/outputs/apk/debug/app-debug.apk`
 
+### 4단계: 설정 화면과 연결 확인
+
+- 실행일: 2026-10-31 (KST)
+- 명령(Windows, `android/`에서 실행): `gradlew.bat test assembleDebug`
+- 결과: **성공**, `BUILD SUCCESSFUL in 7s`
+- 테스트: JUnit 35개 통과. 설정 기본값·토큰 암호화 저장/입력란 비우기, 401/403/404 한국어 분기, HTTPS 검증, Keystore 복호화 실패 재연결, 연결 도중 폼 변경 시 오래된 결과 폐기를 확인
+- 수동 확인: Android Keystore UI·기기 복원 동작과 Galaxy S25에서의 배터리 설정 이동은 아직 기기에서 확인하지 않음
+- APK: `android/app/build/outputs/apk/debug/app-debug.apk`
+
 ## 실제 기기 확인
 
 실기기 확인 전. 에뮬레이터와 Galaxy S25의 렌더링 확인은 사용자가 이어서 할 수 있도록 설치 안내에 절차를 남길 예정이다.
