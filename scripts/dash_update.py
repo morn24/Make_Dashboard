@@ -33,7 +33,7 @@ EMPTY = {
 }
 DEFAULT_REPO = 'morn24/dashboard-data'
 DEFAULT_BRANCH = 'main'
-TOOLS = ('claude-code', 'codex', 'other')
+TOOLS = ('claude-code', 'codex', 'antigravity', 'gemini', 'other')
 STATUSES = ('active', 'paused', 'done')
 MAX_RETRIES = 4  # 409/422 충돌 시 다시 시도하는 횟수
 TIMEOUT = 20

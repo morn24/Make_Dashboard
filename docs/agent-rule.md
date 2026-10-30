@@ -6,8 +6,13 @@
 |---|---|---|
 | Claude Code | `~/.claude/CLAUDE.md` | `%USERPROFILE%\.claude\CLAUDE.md` |
 | Codex | `~/.codex/AGENTS.md` | `%USERPROFILE%\.codex\AGENTS.md` |
+| Antigravity | `~/.gemini/AGENTS.md` | `%USERPROFILE%\.gemini\AGENTS.md` |
 
-파일이 없으면 새로 만들면 됩니다. 두 파일에 같은 문구를 넣되, Codex 쪽은 `--tool claude-code`를 `--tool codex`로 바꾸고, `--status`를 설명하는 줄 아래에 다음 줄을 더합니다. ([네트워크 허용](#codex에서-네트워크-허용하기) 참고)
+파일이 없으면 새로 만들면 됩니다. Antigravity는 같은 문구에서 `--tool claude-code`만 `--tool antigravity`로 바꿉니다. (Antigravity는 `~/.gemini/GEMINI.md`도 읽지만 Gemini CLI와 같은 파일을 써서 서로 덮어쓸 수 있다는 보고가 있어 `AGENTS.md`를 권장합니다.)
+
+Gemini 웹·앱 채팅처럼 PC에서 명령을 실행할 수 없는 AI는 이 규칙을 쓸 수 없습니다. 대신 폰 대시보드의 **＋ 붙여넣기**로 기록합니다.
+
+Claude Code와 Codex 파일에는 같은 문구를 넣되, Codex 쪽은 `--tool claude-code`를 `--tool codex`로 바꾸고, `--status`를 설명하는 줄 아래에 다음 줄을 더합니다. ([네트워크 허용](#codex에서-네트워크-허용하기) 참고)
 
 ```markdown
 - dash_update.py는 GitHub에 접속해야 하므로 샌드박스 안에서 실행하지 말고, 처음부터 샌드박스 밖 실행 승인을 요청해서 실행한다.

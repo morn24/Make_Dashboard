@@ -265,6 +265,12 @@ class DashUpdateTest(unittest.TestCase):
         self.run_cli('set', '--id', 'a', '--progress', '40', '--scope-grew')
         self.assertEqual(self.gh.get_json(PROJECTS)['projects'][0]['progress'], 40)
 
+    def test_tool_antigravity_and_gemini_accepted(self):
+        for tool in ('antigravity', 'gemini'):
+            code, _, err = self.run_cli('set', '--id', 'a', '--tool', tool)
+            self.assertEqual(code, 0, err)
+            self.assertEqual(self.gh.get_json(PROJECTS)['projects'][0]['tool'], tool)
+
     def test_set_status(self):
         self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [sample_project('a', status='active')]})
         self.run_cli('set', '--id', 'a', '--status', 'done')

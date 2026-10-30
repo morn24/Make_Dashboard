@@ -96,7 +96,7 @@ python "$HOME/.dashboard/dash_update.py" remove --id test --yes
 ## 참고: 명령 모음
 
 ```
-python dash_update.py set [--id ID] [--name 이름] [--tool claude-code|codex|other]
+python dash_update.py set [--id ID] [--name 이름] [--tool claude-code|codex|antigravity|gemini|other]
                           [--status active|paused|done] [--progress 0~100]
                           [--current "지금 하는 일"] [--summary "요약"]
                           [--next-add "과제" ...] [--next-done "끝낸 과제" ...]

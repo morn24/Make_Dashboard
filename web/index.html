@@ -67,7 +67,10 @@
     <section aria-labelledby="proj-title">
       <div class="section-head pad">
         <h2 id="proj-title">프로젝트</h2>
-        <span class="count" id="proj-count"></span>
+        <span class="head-right">
+          <span class="count" id="proj-count"></span>
+          <button type="button" class="link small-btn" id="open-paste">＋ 붙여넣기</button>
+        </span>
       </div>
       <div id="proj-list" class="projects"></div>
       <p class="empty" id="proj-empty" hidden>아직 프로젝트가 없어요. PC에서 작업하면 여기에 나타나요.</p>
@@ -102,11 +105,41 @@
       <button type="button" data-status="active">▶ 진행 중</button>
       <button type="button" data-status="paused">⏸ 홀드</button>
       <button type="button" data-status="done">✔ 완료</button>
+      <button type="button" id="pm-paste">📋 붙여넣기로 업데이트 (Gemini 등)</button>
       <button type="button" class="danger" id="pm-remove">대시보드에서 빼기</button>
     </div>
     <div class="dialog-actions">
       <span class="grow"></span>
       <button type="button" id="pm-close">닫기</button>
+    </div>
+  </dialog>
+
+  <dialog id="paste-dlg">
+    <h2>붙여넣기로 업데이트</h2>
+    <p class="help">Gemini처럼 PC에서 직접 기록할 수 없는 AI와 이야기한 진행 상황을 대시보드에 옮겨요.</p>
+    <label class="field">프로젝트
+      <select id="pd-project"></select>
+    </label>
+    <label class="field">AI
+      <select id="pd-tool">
+        <option value="gemini">Gemini</option>
+        <option value="antigravity">Antigravity</option>
+        <option value="claude-code">Claude Code</option>
+        <option value="codex">Codex</option>
+        <option value="other">기타</option>
+      </select>
+    </label>
+    <button type="button" class="step" id="pd-copy">① AI에게 보낼 요청 문구 복사</button>
+    <p class="help">복사한 문구를 Gemini 대화에 붙여넣고 보내세요. 답변 전체를 복사해서 아래에 붙여넣으면 돼요.</p>
+    <label class="field">② AI 답변 붙여넣기
+      <textarea id="pd-text" rows="6" placeholder="{ &quot;name&quot;: ..., &quot;progress&quot;: ... }"></textarea>
+    </label>
+    <div class="preview" id="pd-preview" hidden></div>
+    <p class="error" id="pd-error" hidden></p>
+    <div class="dialog-actions">
+      <span class="grow"></span>
+      <button type="button" id="pd-cancel">취소</button>
+      <button type="button" class="primary" id="pd-apply" disabled>③ 적용</button>
     </div>
   </dialog>
 

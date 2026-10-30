@@ -88,7 +88,7 @@
 |---|---|
 | `id` | 프로젝트 고유값. 보통 폴더/저장소 이름을 소문자-하이픈으로 |
 | `name` | 화면에 보일 이름 |
-| `tool` | `"claude-code"`, `"codex"`, `"other"` |
+| `tool` | 마지막으로 기록한 AI: `"claude-code"`, `"codex"`, `"antigravity"`, `"gemini"`, `"other"` |
 | `status` | `"active"`(진행 중), `"paused"`(홀드), `"done"`(완료) |
 | `progress` | 0~100 정수 (%) |
 | `current` | 지금 하는 일 |
@@ -115,6 +115,14 @@
   - 처리가 끝난 체크는 `checked`에서 지운다 (`set --clear-checked`).
 - 체크를 모두 지우면 `checked` 필드 자체를 없앤다.
 - PC 스크립트는 `set` 할 때 자신이 모르는 필드를 **지우지 않고 보존**해야 한다.
+
+**붙여넣기 갱신 (Gemini 채팅 등)**
+
+PC에서 명령을 실행할 수 없는 AI(Gemini 웹·앱)는 웹앱의 **＋ 붙여넣기**로 기록한다.
+
+1. 웹앱이 고른 프로젝트의 현재 상태를 담은 요청 문구를 만들고, 사용자가 AI에게 보낸다.
+2. AI는 `{ name, progress, current, nextAdd[], nextDone[], summary, scopeGrew? }` JSON 하나로 답한다.
+3. 웹앱은 답변에서 JSON을 꺼내 미리보기를 보여주고, PC 스크립트 `set`과 **같은 규칙**으로 적용한다: 준 값만 바꿈, 다음 과제는 합치기(`nextAdd`/`nextDone`), `scopeGrew`가 아니면 진행률을 낮추지 않음, 처리된 과제의 `checked` 정리, 새 프로젝트는 맨 앞, `id`는 이름을 slugify.
 
 **상태 규칙**
 

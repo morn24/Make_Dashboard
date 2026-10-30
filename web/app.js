@@ -350,7 +350,7 @@ function renderGroup(key, title, items) {
   return details;
 }
 
-const TOOL_LABEL = { 'claude-code': 'Claude Code', codex: 'Codex', other: '기타' };
+const TOOL_LABEL = { 'claude-code': 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', gemini: 'Gemini', other: '기타' };
 const STATUS_LABEL = { active: '', paused: '홀드', done: '완료' };
 
 function renderProject(p) {
@@ -566,6 +566,171 @@ function toggleNext(id, text, done) {
   }, `project: ${id} 사용자 확인 ${done ? '체크' : '해제'} - ${text}`);
 }
 
+// ---------- 붙여넣기로 업데이트 (Gemini 채팅 등 PC에서 기록할 수 없는 AI) ----------
+
+const NEW_PROJECT = '__new__';
+
+// PC 스크립트(dash_update.py)의 slugify와 같은 규칙: 글자·숫자 외는 '-'로
+function slugify(name) {
+  return String(name).trim().toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+|_/gu, '-').replace(/-{2,}/g, '-').replace(/^-|-$/g, '');
+}
+const sameTask = (a, b) => a.split(/\s+/).join(' ').toLowerCase() === b.split(/\s+/).join(' ').toLowerCase();
+
+function openPaste(projectId) {
+  const sel = $('pd-project');
+  sel.replaceChildren(el('option', { value: NEW_PROJECT }, '➕ 새 프로젝트'),
+    ...(state.projects.projects || []).map((p) => el('option', { value: p.id }, `${p.name || p.id} (${p.progress || 0}%)`)));
+  sel.value = projectId || NEW_PROJECT;
+  $('pd-text').value = '';
+  $('pd-preview').hidden = true;
+  $('pd-error').hidden = true;
+  $('pd-apply').disabled = true;
+  pasted = null;
+  $('paste-dlg').showModal();
+}
+
+// AI에게 보낼 요청 문구. 고른 프로젝트의 현재 상태를 같이 넣어서 이어서 정리하게 한다.
+function pastePrompt() {
+  const p = (state.projects.projects || []).find((x) => x.id === $('pd-project').value);
+  const current = p
+    ? `현재 대시보드에 기록된 상태:\n- 이름: ${p.name || p.id}\n- 진행률: ${p.progress || 0}%\n- 지금: ${p.current || '-'}\n- 다음 과제: ${(p.next || []).join(' / ') || '-'}\n`
+    : '이 프로젝트는 대시보드에 아직 없어요. 새로 등록할 거예요.\n';
+  return `우리가 지금까지 나눈 이야기를 바탕으로, 내 개인 대시보드에 기록할 프로젝트 진행 상황을 정리해줘.
+${current}
+아래 JSON 형식 하나만 코드 블록으로 답해줘. 설명은 쓰지 마.
+{
+  "name": "프로젝트 이름 (짧게)",
+  "progress": 0~100 정수 (전체 계획 대비 완료 비율),
+  "current": "지금 하고 있는 단계 한 줄",
+  "nextAdd": ["새로 생긴 다음 과제 (구체적인 동사로)"],
+  "nextDone": ["기존 다음 과제 중 끝난 것 (위 목록의 문구 그대로)"],
+  "summary": "이번 대화에서 한 일 한 줄"
+}
+- 범위가 늘어서 진행률이 기존보다 낮아져야 하면 "scopeGrew": true 를 넣어줘.
+- 모르는 항목은 빼도 돼.`;
+}
+
+async function copyPastePrompt() {
+  const text = pastePrompt();
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('요청 문구를 복사했어요. Gemini에 붙여넣으세요');
+  } catch {
+    // 클립보드 권한이 없으면 입력칸에 넣어서 직접 복사하게 한다
+    const ta = $('pd-text');
+    ta.value = text;
+    ta.select();
+    toast('자동 복사가 막혀 있어요. 선택된 문구를 직접 복사하세요');
+  }
+}
+
+// AI 답변에서 JSON 객체 하나를 꺼낸다 (코드 블록, 앞뒤 설명 문장이 있어도 됨)
+function parsePasted(text) {
+  const body = text.replace(/```(?:json)?/gi, '');
+  const start = body.indexOf('{');
+  const end = body.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error('답변에서 { … } 형식을 찾지 못했어요');
+  let obj;
+  try {
+    obj = JSON.parse(body.slice(start, end + 1).replace(/,\s*([}\]])/g, '$1')); // 끝 쉼표 허용
+  } catch {
+    throw new Error('JSON 형식이 올바르지 않아요. 답변 전체를 다시 복사해 보세요');
+  }
+  const str = (v) => (typeof v === 'string' ? v.trim() : '');
+  const list = (v) => (Array.isArray(v) ? v : typeof v === 'string' ? [v] : []).map(str).filter(Boolean);
+  const u = {
+    name: str(obj.name),
+    current: str(obj.current),
+    summary: str(obj.summary),
+    nextAdd: list(obj.nextAdd ?? obj.next),
+    nextDone: list(obj.nextDone),
+    scopeGrew: obj.scopeGrew === true,
+  };
+  if (obj.progress != null && obj.progress !== '') {
+    const n = Math.round(Number(String(obj.progress).replace('%', '')));
+    if (Number.isNaN(n) || n < 0 || n > 100) throw new Error('progress는 0~100 사이 숫자여야 해요');
+    u.progress = n;
+  }
+  if (['active', 'paused', 'done'].includes(obj.status)) u.status = obj.status;
+  return u;
+}
+
+let pasted = null;
+
+function previewPaste() {
+  const text = $('pd-text').value.trim();
+  const pv = $('pd-preview');
+  const err = $('pd-error');
+  pasted = null;
+  pv.hidden = true;
+  err.hidden = true;
+  $('pd-apply').disabled = true;
+  if (!text) return;
+  try {
+    pasted = parsePasted(text);
+  } catch (e) {
+    err.textContent = e.message;
+    err.hidden = false;
+    return;
+  }
+  const isNew = $('pd-project').value === NEW_PROJECT;
+  if (isNew && !pasted.name) {
+    err.textContent = '새 프로젝트는 name(이름)이 필요해요';
+    err.hidden = false;
+    pasted = null;
+    return;
+  }
+  const row = (k, v) => el('div', { class: 'pv-row' }, el('span', { class: 'pv-key' }, k), v);
+  pv.replaceChildren(
+    ...(isNew ? [row('새 카드', pasted.name)] : []),
+    ...(pasted.progress != null ? [row('진행률', `${pasted.progress}%${pasted.scopeGrew ? ' (범위 늘어남)' : ''}`)] : []),
+    ...(pasted.current ? [row('지금', pasted.current)] : []),
+    ...pasted.nextDone.map((t) => row('끝남 ✔', t)),
+    ...pasted.nextAdd.map((t) => row('추가 ＋', t)),
+    ...(pasted.summary ? [row('요약', pasted.summary)] : []),
+  );
+  pv.hidden = false;
+  $('pd-apply').disabled = false;
+}
+
+// PC 스크립트의 set 규칙과 같게: 준 값만 바꾸고, 다음 과제는 합치고, 진행률은 범위가 늘지 않았으면 낮추지 않는다
+function applyPaste() {
+  if (!pasted) return;
+  const u = pasted;
+  const tool = $('pd-tool').value;
+  const selected = $('pd-project').value;
+  const id = selected === NEW_PROJECT ? (slugify(u.name) || `p-${Date.now().toString(36)}`) : selected;
+  let note = '';
+  $('paste-dlg').close();
+  changeProjects((d) => {
+    const now = isoNow();
+    note = '';
+    let p = d.projects.find((x) => x.id === id);
+    if (!p) {
+      p = { id, name: u.name || id, tool, status: 'active', progress: 0, current: '', next: [], summary: '', updatedAt: now };
+      d.projects.unshift(p); // 새 프로젝트는 맨 앞
+    }
+    p.tool = tool;
+    p.status = u.status || 'active';
+    if (u.progress != null) {
+      if (u.progress < (p.progress || 0) && !u.scopeGrew) note = `진행률은 기존 ${p.progress}%를 유지했어요`;
+      else p.progress = u.progress;
+    }
+    if (u.current) p.current = u.current;
+    if (u.summary) p.summary = u.summary;
+    const next = (p.next || []).filter((x) => !u.nextDone.some((t) => sameTask(x, t)));
+    for (const t of u.nextAdd) if (!next.some((x) => sameTask(x, t))) next.push(t);
+    p.next = next;
+    // 끝났거나 다시 추가된 과제는 사용자 확인 체크도 정리
+    const handled = [...u.nextDone, ...u.nextAdd];
+    const checked = (p.checked || []).filter((c) => !handled.some((t) => sameTask(c.text, t)));
+    if (checked.length) p.checked = checked;
+    else delete p.checked;
+    p.updatedAt = now;
+    return d;
+  }, `project: ${id} ${tool}에서 붙여넣기 갱신`).then(() => { if (note) toast(note); });
+}
+
 function removeProject() {
   const id = menuProjectId;
   const p = (state.projects.projects || []).find((x) => x.id === id);
@@ -653,6 +818,13 @@ function init() {
   $('pm-remove').addEventListener('click', removeProject);
   document.addEventListener('pointerdown', startDrag);
   $('pm-close').addEventListener('click', () => $('proj-menu').close());
+  $('pm-paste').addEventListener('click', () => { $('proj-menu').close(); openPaste(menuProjectId); });
+  $('open-paste').addEventListener('click', () => openPaste());
+  $('pd-copy').addEventListener('click', copyPastePrompt);
+  $('pd-text').addEventListener('input', previewPaste);
+  $('pd-project').addEventListener('change', previewPaste);
+  $('pd-cancel').addEventListener('click', () => $('paste-dlg').close());
+  $('pd-apply').addEventListener('click', applyPaste);
   $('s-clear').addEventListener('click', () => {
     if (!confirm('이 기기에서 연결 정보(토큰)를 지울까요?')) return;
     remove(CFG_KEY);

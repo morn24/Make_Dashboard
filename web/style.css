@@ -11,6 +11,8 @@
   --danger: #dc2626;
   --codex: #0f766e;
   --claude: #c2410c;
+  --gemini: #1a73e8;
+  --antigravity: #7c3aed;
   --radius: 14px;
   color-scheme: light;
 }
@@ -28,6 +30,8 @@
     --danger: #f87171;
     --codex: #2dd4bf;
     --claude: #fb923c;
+    --gemini: #8ab4f8;
+    --antigravity: #c4b5fd;
     color-scheme: dark;
   }
 }
@@ -44,6 +48,8 @@
   --danger: #f87171;
   --codex: #2dd4bf;
   --claude: #fb923c;
+  --gemini: #8ab4f8;
+  --antigravity: #c4b5fd;
   color-scheme: dark;
 }
 
@@ -141,6 +147,8 @@ h2 { font-size: 1.05rem; margin: 0; }
 .tool.codex { color: var(--codex); }
 .tool.claude-code { color: var(--claude); }
 .tool.other { color: var(--muted); }
+.tool.gemini { color: var(--gemini); }
+.tool.antigravity { color: var(--antigravity); }
 .pct { font-weight: 700; font-variant-numeric: tabular-nums; flex: none; }
 .proj .bar { margin: 8px 0 10px; }
 .proj .row { font-size: .9rem; margin: 4px 0; overflow-wrap: anywhere; }
@@ -184,6 +192,25 @@ dialog label input {
   background: none; border: 1px solid var(--line); padding: 10px 14px; border-radius: 10px;
 }
 .grow { flex: 1; }
+
+.head-right { display: flex; align-items: baseline; gap: 10px; }
+.small-btn { font-size: .85rem; padding: 0; }
+dialog .field { display: block; font-size: .85rem; color: var(--muted); margin: 10px 0; }
+dialog select, dialog textarea {
+  display: block; width: 100%; margin-top: 4px; padding: 10px 12px; font: inherit;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text);
+}
+dialog textarea { resize: vertical; font-size: .85rem; }
+dialog .step {
+  width: 100%; margin-top: 6px; padding: 11px 14px; border-radius: 10px;
+  border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600;
+}
+.preview {
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+  font-size: .85rem; background: var(--bg);
+}
+.preview .pv-row { margin: 2px 0; overflow-wrap: anywhere; }
+.preview .pv-key { color: var(--muted); display: inline-block; min-width: 64px; }
 
 .handle {
   flex: none; width: 30px; margin: -4px 0 -4px -8px; text-align: center;
