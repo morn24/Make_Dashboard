@@ -21,6 +21,7 @@ const state = {
   calendar: EMPTY.calendar(),
   demo: false,
   lastWrite: {}, // file -> { oldSha, at }
+  dragging: false, // 끌어서 순서 바꾸는 중이면 다시 그리기를 미룬다
   openGroups: { paused: false, done: false }, // 홀드/완료 묶음 펼침 상태 (다시 그려도 유지)
   busy: 0,
 };
@@ -282,6 +283,7 @@ function cleanDone() {
 // ---------- 그리기 ----------
 
 function render() {
+  if (state.dragging) return;
   const today = localDate();
   const now = new Date();
   $('today').textContent = now.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
@@ -290,8 +292,8 @@ function render() {
   // 할 일
   const all = state.todos.items || [];
   const visible = all.filter((i) => isVisible(i, today));
-  // 미완료 먼저, 그 안에서 매일 반복 먼저
-  visible.sort((a, b) => (isDone(a, today) - isDone(b, today)) || ((b.repeat === 'daily') - (a.repeat === 'daily')));
+  // 미완료 먼저, 그 안에서는 저장된 순서(사용자가 끌어서 정한 순서) 그대로
+  visible.sort((a, b) => isDone(a, today) - isDone(b, today));
   const doneCount = visible.filter((i) => isDone(i, today)).length;
   $('todo-count').textContent = visible.length ? `${doneCount} / ${visible.length}` : '';
   const pct = visible.length ? Math.round((doneCount / visible.length) * 100) : 0;
@@ -304,7 +306,7 @@ function render() {
   const list = $('todo-list');
   list.replaceChildren(...visible.map((item) => {
     const done = isDone(item, today);
-    const li = el('li', { class: `todo${done ? ' done' : ''}` });
+    const li = el('li', { class: `todo${done ? ' done' : ''}`, 'data-id': item.id, 'data-group': done ? 'done' : 'todo' });
     const label = el('label');
     const cb = el('input', { type: 'checkbox' });
     cb.checked = done;
@@ -313,6 +315,8 @@ function render() {
     if (item.repeat === 'daily') label.append(el('span', { class: 'tag' }, '매일'));
     const del = el('button', { class: 'del', type: 'button', 'aria-label': `${item.title} 삭제`, title: '삭제' }, '✕');
     del.addEventListener('click', () => deleteTodo(item.id));
+    // 끝낸 항목은 옮길 수 없지만 줄을 맞추려고 빈 자리를 둔다
+    li.append(done ? el('span', { class: 'handle spacer', 'aria-hidden': 'true' }) : handle(item.title));
     li.append(label, del);
     return li;
   }));
@@ -320,7 +324,8 @@ function render() {
   // 프로젝트
   const order = { active: 0, paused: 1, done: 2 };
   const projects = [...(state.projects.projects || [])].sort(
-    (a, b) => ((order[a.status] ?? 3) - (order[b.status] ?? 3)) || String(b.updatedAt).localeCompare(String(a.updatedAt)),
+    // 같은 상태끼리는 저장된 순서 그대로 (sort는 안정 정렬)
+    (a, b) => (order[a.status] ?? 0) - (order[b.status] ?? 0),
   );
   const byStatus = (s) => projects.filter((p) => (s === 'active' ? !['paused', 'done'].includes(p.status) : p.status === s));
   const active = byStatus('active');
@@ -350,8 +355,10 @@ const STATUS_LABEL = { active: '', paused: '홀드', done: '완료' };
 function renderProject(p) {
   const progress = Math.max(0, Math.min(100, Math.round(Number(p.progress) || 0)));
   const tool = TOOL_LABEL[p.tool] ? p.tool : 'other';
-  const card = el('article', { class: `proj ${p.status || ''}` });
+  const group = ['paused', 'done'].includes(p.status) ? p.status : 'active';
+  const card = el('article', { class: `proj ${p.status || ''}`, 'data-id': p.id, 'data-group': group });
   const head = el('div', { class: 'proj-head' },
+    handle(p.name || p.id),
     el('span', { class: 'proj-name' }, p.name || p.id),
     el('span', { class: `tool ${tool}` }, TOOL_LABEL[tool]),
   );
@@ -430,6 +437,77 @@ function demoCalendar(c) {
   const today = localDate();
   const shift = (v) => v && v.replace('2000-01-01', today).replace('2000-01-02', addDays(today, 1));
   return { ...c, events: c.events.map((e) => ({ ...e, start: shift(e.start), end: shift(e.end) })) };
+}
+
+// ---------- 끌어서 순서 바꾸기 ----------
+
+function handle(name) {
+  return el('span', { class: 'handle', 'aria-hidden': 'true', title: `${name} 끌어서 순서 바꾸기` }, '⠿');
+}
+
+// 저장된 배열에서 id 항목을 beforeId 앞으로 옮긴다 (beforeId가 없으면 맨 뒤로).
+// "몇 번째로"가 아니라 "누구 앞으로"라서, 그 사이 다른 기기가 항목을 추가해도 결과가 어긋나지 않는다.
+function moveBefore(list, id, beforeId) {
+  const from = list.findIndex((x) => x.id === id);
+  if (from < 0) return list;
+  const [item] = list.splice(from, 1);
+  const to = beforeId ? list.findIndex((x) => x.id === beforeId) : -1;
+  if (to < 0) list.push(item);
+  else list.splice(to, 0, item);
+  return list;
+}
+
+function onReorder(item, beforeId) {
+  const id = item.dataset.id;
+  if (item.closest('#todo-list')) {
+    const t = state.todos.items.find((i) => i.id === id);
+    changeTodos((d) => { moveBefore(d.items, id, beforeId); return d; }, `todo: 순서 변경 - ${t ? t.title : id}`);
+  } else {
+    changeProjects((d) => { moveBefore(d.projects, id, beforeId); return d; }, `project: ${id} 순서 변경`);
+  }
+}
+
+// 손잡이(⠿)를 누른 채 위아래로 끌면 같은 묶음(data-group) 안에서 자리를 바꾼다. 마우스와 터치 모두 동작.
+function startDrag(ev) {
+  const h = ev.target.closest('.handle:not(.spacer)');
+  if (!h) return;
+  const item = h.closest('[data-id]');
+  const container = item && item.parentElement;
+  if (!container) return;
+  ev.preventDefault();
+  const group = item.dataset.group;
+  const peers = () => [...container.children].filter((c) => c !== item && c.dataset.group === group);
+  const nextPeer = () => {
+    const n = item.nextElementSibling;
+    return n && n.dataset.group === group ? n.dataset.id : null;
+  };
+  const before = nextPeer();
+  state.dragging = true;
+  item.classList.add('dragging');
+  // 항목을 옮기면 포인터 캡처가 풀리므로, 이동/놓기는 문서 전체에서 듣는다
+
+  const move = (e) => {
+    if (e.pointerId !== ev.pointerId) return;
+    const list = peers();
+    if (!list.length) return;
+    const target = list.find((c) => { const r = c.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+    if (target) container.insertBefore(item, target);
+    else list[list.length - 1].after(item);
+  };
+  const end = (e) => {
+    if (e.pointerId !== ev.pointerId) return;
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', end);
+    document.removeEventListener('pointercancel', end);
+    item.classList.remove('dragging');
+    state.dragging = false;
+    const after = nextPeer();
+    if (e.type === 'pointerup' && after !== before) onReorder(item, after);
+    else render();
+  };
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', end);
 }
 
 // ---------- 프로젝트 상태 변경 (진행 중 / 홀드 / 완료 / 삭제) ----------
@@ -542,6 +620,7 @@ function init() {
     btn.addEventListener('click', () => setProjectStatus(btn.dataset.status));
   }
   $('pm-remove').addEventListener('click', removeProject);
+  document.addEventListener('pointerdown', startDrag);
   $('pm-close').addEventListener('click', () => $('proj-menu').close());
   $('s-clear').addEventListener('click', () => {
     if (!confirm('이 기기에서 연결 정보(토큰)를 지울까요?')) return;

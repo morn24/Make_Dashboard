@@ -45,6 +45,7 @@ python scripts/dash_update.py todo-add "할 일" [--daily]   # PC에서 할 일 
 ```
 
 - `set`은 항상 프로젝트의 `updatedAt`과 파일 최상위 `updatedAt`을 현재 시각(ISO 8601, 현지 시간대 포함)으로 바꾼다.
+- 새 프로젝트는 `projects` 배열 **맨 앞**에 넣고, 기존 프로젝트를 갱신할 때는 배열 안 위치를 **절대 바꾸지 않는다** (사용자가 폰에서 정한 순서 유지). `todo-add`는 `items` 맨 뒤에 추가한다.
 - `set`에서 `--status`를 생략하면 상태를 `active`로 만든다. (홀드나 완료였던 프로젝트도 다시 작업하면 진행 중으로 돌아옴. `docs/data-format.md`의 상태 규칙 참고)
 - 쓰기는 `docs/data-format.md` 규칙대로 **읽기 → 변경 적용 → sha와 함께 PUT**. 409나 422가 오면 최대 4번 다시 시도한다. **덮어쓰기는 절대 하지 않는다.**
 - 커밋 메시지 예시: `project: make-dashboard 60% - 지금 하는 일`

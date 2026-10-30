@@ -178,6 +178,16 @@ dialog label input {
 }
 .grow { flex: 1; }
 
+.handle {
+  flex: none; width: 30px; margin: -4px 0 -4px -8px; text-align: center;
+  color: var(--muted); cursor: grab; user-select: none;
+  touch-action: none; /* 손잡이를 끌 때 화면이 스크롤되지 않게 */
+  font-size: 1.3rem; line-height: 1; padding: 10px 0;
+}
+.handle.spacer { visibility: hidden; cursor: default; }
+.dragging { opacity: .85; box-shadow: 0 6px 20px rgb(0 0 0 / .25); position: relative; z-index: 2; background: var(--card); }
+.dragging .handle { cursor: grabbing; }
+
 .events { list-style: none; margin: 8px 0 0; padding: 0; }
 .event { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; }
 .ev-time { flex: none; width: 92px; font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
