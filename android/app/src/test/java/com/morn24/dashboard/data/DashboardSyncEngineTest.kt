@@ -165,6 +165,26 @@ class DashboardSyncEngineTest {
         assertEquals("sha", store.cached(DashboardFile.TODOS).sha)
     }
 
+    @Test
+    fun refreshIgnoresThePreviousTodosShaDuringTheMutationGuardWindow() = runBlocking {
+        connectStore()
+        val generation = store.generation()
+        val updatedJson = """{"version":1,"items":[{"id":"todo-1","title":"새 완료 상태","repeat":"daily","doneOn":"2026-10-31"}]}"""
+        val staleJson = """{"version":1,"items":[{"id":"todo-1","title":"오래된 서버 응답","repeat":"daily","doneOn":null}]}"""
+        store.saveTodoMutationIfGeneration(updatedJson, "new-sha", "old-sha", 1_000L, generation)
+        val factory = repositoryFactory(
+            DashboardFile.TODOS to found(staleJson, "old-sha"),
+            DashboardFile.PROJECTS to { RemoteRead.NotFound },
+            DashboardFile.CALENDAR to { RemoteRead.NotFound },
+        )
+
+        val snapshot = engine(factory).load()
+
+        assertEquals("새 완료 상태", snapshot.todos.single().title)
+        assertEquals("new-sha", store.cached(DashboardFile.TODOS).sha)
+        assertEquals(updatedJson, store.cached(DashboardFile.TODOS).rawJson)
+    }
+
     private suspend fun connectStore() {
         store.saveSettings(DashboardSettings(encryptedToken = cipher.encrypt("test-only-token")))
     }

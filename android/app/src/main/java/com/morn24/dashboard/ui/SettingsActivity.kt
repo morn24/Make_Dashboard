@@ -42,6 +42,7 @@ import com.morn24.dashboard.data.AndroidKeystoreAesKeyProvider
 import com.morn24.dashboard.data.DashboardStore
 import com.morn24.dashboard.data.DefaultDashboardRepositoryFactory
 import com.morn24.dashboard.data.TokenCipher
+import com.morn24.dashboard.work.DashboardWorkScheduler
 
 class SettingsActivity : ComponentActivity() {
     private lateinit var viewModel: SettingsViewModel
@@ -71,6 +72,9 @@ private fun SettingsScreen(viewModel: SettingsViewModel) {
     }
 
     LaunchedEffect(viewModel) { viewModel.load() }
+    LaunchedEffect(state.isConnected) {
+        if (state.isConnected) DashboardWorkScheduler.onSettingsSaved(context)
+    }
 
     MaterialTheme(colorScheme = colors) {
         Surface(modifier = Modifier.fillMaxSize()) {

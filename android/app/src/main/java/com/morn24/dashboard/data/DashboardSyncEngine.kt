@@ -120,6 +120,15 @@ class DashboardSyncEngine(
             when (val result = repository.read(file)) {
                 is RemoteRead.Found -> {
                     val parsed = parse(result.document)
+                    if (file == DashboardFile.TODOS && store.shouldIgnoreStaleTodoSha(result.sha, clock.millis())) {
+                        val cachedJson = store.cached(file).rawJson
+                        if (cachedJson != null) {
+                            val cachedValue = runCatching {
+                                parse(Json.parseToJsonElement(cachedJson) as JsonObject)
+                            }.getOrNull()
+                            if (cachedValue != null) return FileDisplay(cachedValue, available = true)
+                        }
+                    }
                     store.saveSuccessfulFileIfGeneration(file, result.rawJson, result.sha, clock.millis(), generation)
                     return FileDisplay(parsed, available = true)
                 }

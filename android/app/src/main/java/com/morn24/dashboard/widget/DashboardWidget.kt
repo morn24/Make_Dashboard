@@ -47,6 +47,7 @@ import com.morn24.dashboard.domain.ProjectRules
 import com.morn24.dashboard.domain.Todo
 import com.morn24.dashboard.domain.TodoRules
 import com.morn24.dashboard.ui.SettingsActivity
+import com.morn24.dashboard.work.DashboardWorkScheduler
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -385,7 +386,8 @@ private fun timeLabel(occurrence: CalendarOccurrence, zone: ZoneId, today: Local
 
 class RefreshWidgetAction : ActionCallback {
     override suspend fun onAction(context: android.content.Context, glanceId: GlanceId, parameters: ActionParameters) {
-        DashboardWidget().update(context, glanceId)
+        runCatching { DashboardWidget().update(context, glanceId) }
+        DashboardWorkScheduler.requestRefresh(context)
     }
 }
 

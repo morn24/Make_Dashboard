@@ -46,12 +46,12 @@ class ToggleTodoProcessor(
 
                 val mutation = repository.updateTodo(todoId, pending.targetDoneOn)
                 val rawJson = prettyJson.encodeToString(mutation.document) + "\n"
-                val saved = store.saveSuccessfulFileIfGeneration(
-                    DashboardFile.TODOS,
-                    rawJson,
-                    mutation.sha,
-                    clock.millis(),
-                    pending.expectedGeneration,
+                val saved = store.saveTodoMutationIfGeneration(
+                    rawJson = rawJson,
+                    newSha = mutation.sha,
+                    previousSha = mutation.previousSha,
+                    atMillis = clock.millis(),
+                    expectedGeneration = pending.expectedGeneration,
                 )
                 store.removePendingToggle(todoId, operationId)
                 if (saved) ToggleTodoResult.Saved else ToggleTodoResult.StaleConfiguration

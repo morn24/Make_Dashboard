@@ -85,7 +85,40 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
             sha?.let { preferences[cacheShaKey(file)] = it } ?: preferences.remove(cacheShaKey(file))
             preferences[cacheSuccessKey(file)] = atMillis
             preferences.remove(cacheErrorKey(file))
+            if (file == DashboardFile.TODOS) clearTodoStaleShaGuard(preferences)
         }
+    }
+
+    /** Saves a successful mutation and remembers the previous sha for a short stale-read window. */
+    suspend fun saveTodoMutationIfGeneration(
+        rawJson: String,
+        newSha: String,
+        previousSha: String,
+        atMillis: Long,
+        expectedGeneration: Long,
+    ): Boolean {
+        var saved = false
+        dataStore.edit { preferences ->
+            if ((preferences[SettingsKeys.generation] ?: 0L) != expectedGeneration) return@edit
+            preferences[cacheRawKey(DashboardFile.TODOS)] = rawJson
+            preferences[cacheShaKey(DashboardFile.TODOS)] = newSha
+            preferences[cacheSuccessKey(DashboardFile.TODOS)] = atMillis
+            preferences.remove(cacheErrorKey(DashboardFile.TODOS))
+            if (previousSha != newSha) {
+                preferences[SettingsKeys.todoRejectedSha] = previousSha
+                preferences[SettingsKeys.todoRejectedShaUntil] = atMillis + STALE_TODO_SHA_GUARD_MILLIS
+            } else {
+                clearTodoStaleShaGuard(preferences)
+            }
+            saved = true
+        }
+        return saved
+    }
+
+    suspend fun shouldIgnoreStaleTodoSha(sha: String, nowMillis: Long): Boolean {
+        val preferences = dataStore.data.first()
+        return preferences[SettingsKeys.todoRejectedSha] == sha &&
+            (preferences[SettingsKeys.todoRejectedShaUntil] ?: Long.MIN_VALUE) > nowMillis
     }
 
     /** Stores a response only if it still belongs to the current saved connection. */
@@ -103,6 +136,7 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
             sha?.let { preferences[cacheShaKey(file)] = it } ?: preferences.remove(cacheShaKey(file))
             preferences[cacheSuccessKey(file)] = atMillis
             preferences.remove(cacheErrorKey(file))
+            if (file == DashboardFile.TODOS) clearTodoStaleShaGuard(preferences)
             saved = true
         }
         return saved
@@ -170,6 +204,7 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
             preferences.remove(cacheSuccessKey(file))
             preferences.remove(cacheErrorKey(file))
         }
+        clearTodoStaleShaGuard(preferences)
         // Pending-action preferences use this prefix; remove them when a saved connection changes.
         preferences.asMap().keys.filter { it.name.startsWith(PENDING_PREFIX) }.forEach { preferences.remove(it) }
     }
@@ -182,11 +217,14 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
         val tokenIv = stringPreferencesKey("settings_token_iv")
         val tokenCiphertext = stringPreferencesKey("settings_token_ciphertext")
         val generation = longPreferencesKey("settings_generation")
+        val todoRejectedSha = stringPreferencesKey("cache_todos_rejected_sha")
+        val todoRejectedShaUntil = longPreferencesKey("cache_todos_rejected_sha_until")
     }
 
     companion object {
         private const val CACHE_PREFIX = "cache_"
         private const val PENDING_PREFIX = "pending_toggle_"
+        private const val STALE_TODO_SHA_GUARD_MILLIS = 90_000L
         private val pendingJson = Json
 
         private fun cacheRawKey(file: DashboardFile) = stringPreferencesKey("${CACHE_PREFIX}${file.key}_json")
@@ -194,6 +232,11 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
         private fun cacheSuccessKey(file: DashboardFile) = longPreferencesKey("${CACHE_PREFIX}${file.key}_success")
         private fun cacheErrorKey(file: DashboardFile) = stringPreferencesKey("${CACHE_PREFIX}${file.key}_error")
         private fun pendingToggleKey(todoId: String) = stringPreferencesKey("$PENDING_PREFIX$todoId")
+
+        private fun clearTodoStaleShaGuard(preferences: MutablePreferences) {
+            preferences.remove(SettingsKeys.todoRejectedSha)
+            preferences.remove(SettingsKeys.todoRejectedShaUntil)
+        }
 
         fun from(context: Context): DashboardStore = DashboardStore(context.applicationContext.dashboardPreferencesDataStore)
     }

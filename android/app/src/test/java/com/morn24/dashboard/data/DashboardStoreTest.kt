@@ -136,6 +136,24 @@ class DashboardStoreTest {
     }
 
     @Test
+    fun todoMutationRejectsThePreviousShaForNinetySeconds() = runBlocking {
+        val generation = store.saveSettings(DashboardSettings(encryptedToken = EncryptedToken("iv", "cipher")))
+        assertTrue(
+            store.saveTodoMutationIfGeneration(
+                rawJson = "{\"items\":[]}",
+                newSha = "new-sha",
+                previousSha = "old-sha",
+                atMillis = 1_000L,
+                expectedGeneration = generation,
+            ),
+        )
+
+        assertTrue(store.shouldIgnoreStaleTodoSha("old-sha", nowMillis = 90_999L))
+        assertFalse(store.shouldIgnoreStaleTodoSha("old-sha", nowMillis = 91_000L))
+        assertFalse(store.shouldIgnoreStaleTodoSha("new-sha", nowMillis = 1_001L))
+    }
+
+    @Test
     fun repositoryChangeClearsAllRemoteCachesAndIncrementsGeneration() = runBlocking {
         store.saveSuccessfulFile(DashboardFile.PROJECTS, "{\"projects\":[]}", "sha", 100L)
         val first = store.settings().copy(encryptedToken = EncryptedToken("iv", "cipher"))
