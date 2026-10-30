@@ -3,3 +3,12 @@ node_modules/
 *.local
 .env
 __pycache__/
+
+# Android build outputs and machine-local configuration
+android/.gradle/
+android/**/build/
+android/local.properties
+android/**/*.apk
+android/**/*.aab
+android/**/*.jks
+android/**/*.keystore
