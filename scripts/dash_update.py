@@ -108,18 +108,31 @@ def slugify(name):
     return re.sub(r'-{2,}', '-', s).strip('-')
 
 
-def project_folder():
-    """git 최상위 폴더, git 저장소가 아니면 현재 폴더."""
+def git_rev_parse(flag):
     try:
         out = subprocess.run(
-            ['git', 'rev-parse', '--show-toplevel'],
+            ['git', 'rev-parse', flag],
             capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10,
         )  # git은 경로를 UTF-8로 출력한다 (Windows 기본 cp949로 읽으면 한글 경로에서 깨짐)
-        if out.returncode == 0 and out.stdout.strip():
-            return Path(out.stdout.strip())
     except (OSError, subprocess.SubprocessError):
-        pass
-    return Path.cwd()
+        return None
+    if out.returncode == 0 and out.stdout.strip():
+        return out.stdout.strip()
+    return None
+
+
+def project_folder():
+    """원래 저장소 폴더 (worktree 안이어도), git 저장소가 아니면 현재 폴더."""
+    top = git_rev_parse('--show-toplevel')
+    if top is None:
+        return Path.cwd()
+    # worktree에서도 --git-common-dir은 원래 저장소의 .git을 가리킨다 (상대 경로면 현재 폴더 기준)
+    common = git_rev_parse('--git-common-dir')
+    if common:
+        common_path = Path.cwd() / common
+        if common_path.name == '.git':
+            return common_path.resolve().parent
+    return Path(top)  # bare 저장소, 서브모듈 등은 최상위 폴더 이름
 
 
 # ---------- GitHub API ----------

@@ -8,6 +8,8 @@ import contextlib
 import io
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -82,6 +84,16 @@ class FakeGitHub:
         text = base64.b64decode(body['content']).decode('utf-8')
         self.files[path] = (text, f'sha{self.version}')
         return FakeResponse(200 if current else 201, {'content': {'sha': f'sha{self.version}'}})
+
+
+@contextlib.contextmanager
+def chdir(path):  # contextlib.chdir는 3.11부터라 직접 만든다
+    old = os.getcwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(old)
 
 
 PROJECTS = 'data/projects.json'
@@ -194,6 +206,26 @@ class DashUpdateTest(unittest.TestCase):
         with mock.patch.object(dash_update.subprocess, 'run', return_value=done) as run:
             self.assertEqual(dash_update.project_folder().name, 'PMR-Wiki')
         self.assertEqual(run.call_args.kwargs['encoding'], 'utf-8')
+
+    @unittest.skipUnless(shutil.which('git'), 'git 없음')
+    def test_project_folder_uses_main_repo_name_in_worktree(self):
+        root = Path(self.tmp.name).resolve()
+        repo, wt = root / 'Main_Repo', root / 'wt-feature'
+        (repo / 'sub').mkdir(parents=True)
+        git = ['git', '-c', 'user.name=t', '-c', 'user.email=t@t']
+        for cmd in (['init', '-q'], ['commit', '-q', '--allow-empty', '-m', 'init'],
+                    ['worktree', 'add', '-q', str(wt)]):
+            subprocess.run(git + cmd, cwd=repo, check=True, capture_output=True)
+        (wt / 'deep').mkdir()
+        for cwd in (repo, repo / 'sub', wt, wt / 'deep'):
+            with self.subTest(cwd=cwd), chdir(cwd):
+                self.assertEqual(dash_update.project_folder().name, 'Main_Repo')
+
+    def test_project_folder_outside_git_is_current_folder(self):
+        folder = Path(self.tmp.name).resolve() / 'Obsidian Note'
+        folder.mkdir()
+        with chdir(folder), mock.patch.object(dash_update, 'git_rev_parse', lambda flag: None):
+            self.assertEqual(dash_update.project_folder().name, 'Obsidian Note')
 
     def test_conflict_then_retry_succeeds(self):
         self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [sample_project('a')]})
