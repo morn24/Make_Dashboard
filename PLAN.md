@@ -20,8 +20,8 @@
 - [x] 설치 안내, AI 전역 규칙, 기존 프로젝트 등록 안내 작성
 - [x] `~/.dashboard/`에 설치하고 Claude Code·Codex 전역 규칙과 Codex 네트워크 설정 반영
 - [x] 여러 세션이 동시에 기록해도 카드 하나에 일관되게 쌓이게 하기 (worktree id, 다음 과제 합치기, 진행률 낮추기 방지)
-- [ ] 다른 프로젝트에서 작업한 뒤 대시보드가 자동으로 갱신되는지 확인 (사용자)
-- [ ] Codex에서 `dash_update.py`가 네트워크에 접속되는지 확인 (사용자)
+- [x] 다른 프로젝트에서 작업한 뒤 대시보드가 자동으로 갱신되는지 확인 (사용자)
+- [x] Codex에서 `dash_update.py`가 네트워크에 접속되는지 확인 (사용자)
 
 ## 단계 4: 안드로이드 위젯 ([수행지시문 02](docs/instructions/02-android-widget.md))
 
@@ -34,4 +34,4 @@
 ## 단계 5: Google 캘린더 연동
 
 - [x] Apps Script 코드와 웹앱 오늘 일정 표시
-- [ ] Apps Script 설치하고 `calendar.json`이 만들어지는지 확인 (사용자, [설정 안내](docs/google-calendar-setup.md))
+- [x] Apps Script 설치하고 `calendar.json`이 만들어지는지 확인 (사용자, [설정 안내](docs/google-calendar-setup.md))
