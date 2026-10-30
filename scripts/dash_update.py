@@ -286,10 +286,22 @@ def cmd_set(cfg, args):
             p['current'] = args.current
         if args.next is not None:
             p['next'] = clean(args.next)
+        checked = [c for c in p.get('checked') or [] if isinstance(c, dict) and c.get('text')]
         if args.next_add or args.next_done:
             p['next'], missing = merge_next(p.get('next') or [], clean(args.next_add), clean(args.next_done))
+            # 폰에서 체크만 되고 next에서는 이미 빠진 항목은 '없음'으로 알리지 않는다
+            missing = [m for m in missing if not any(same_task(m, c['text']) for c in checked)]
             if missing:
                 notes.append('다음 과제 목록에 없어서 뺄 수 없었어요: ' + ', '.join(missing))
+            # 끝냈거나(--next-done) 미비해서 다시 넣은(--next-add) 항목은 사용자 확인 체크를 정리한다
+            handled = clean(args.next_done) + clean(args.next_add)
+            checked = [c for c in checked if not any(same_task(c['text'], h) for h in handled)]
+        if args.clear_checked:
+            checked = []
+        if checked:
+            p['checked'] = checked
+        else:
+            p.pop('checked', None)
         if args.summary is not None:
             p['summary'] = args.summary
         p['updatedAt'] = now
@@ -319,6 +331,11 @@ def print_project(p):
             print(f'    {i}. {s}')
     else:
         print('  다음 과제: -')
+    checked = [c for c in p.get('checked') or [] if isinstance(c, dict) and c.get('text')]
+    if checked:
+        print('  사용자 확인(폰에서 완료 체크, 아직 처리 안 됨):')
+        for c in checked:
+            print(f"    - {c['text']}  ({c.get('at') or '-'})")
     if p.get('summary'):
         print(f"  요약     : {p['summary']}")
     print(f"  갱신     : {p.get('updatedAt') or '-'}")
@@ -421,6 +438,7 @@ def build_parser():
     p.add_argument('--next-add', action='append', help='다음 과제 하나를 목록 끝에 더함 (기존 항목 유지)')
     p.add_argument('--next-done', action='append', help='끝난 다음 과제 하나를 목록에서 뺌')
     p.add_argument('--summary', help='이번 작업 요약')
+    p.add_argument('--clear-checked', action='store_true', help='폰에서 체크한 "사용자 확인" 항목을 모두 처리했을 때 지움')
     p.set_defaults(func=cmd_set)
 
     p = sub.add_parser('show', parents=[common], help='현재 값 보기')

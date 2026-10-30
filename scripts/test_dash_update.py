@@ -197,6 +197,42 @@ class DashUpdateTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.gh.get_json(PROJECTS)['projects'][0]['next'], ['다른 세션 과제', '배포 스크립트 작성'])
 
+    def test_user_checked_is_kept_and_shown(self):
+        p = sample_project('a', next=['결제 연결', '문서 정리'])
+        p['checked'] = [{'text': '결제 연결', 'at': '2026-10-30T10:00:00+09:00'}]
+        self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [p]})
+        code, out, _ = self.run_cli('show', '--id', 'a')
+        self.assertEqual(code, 0)
+        self.assertIn('사용자 확인', out)
+        self.assertIn('결제 연결', out)
+        # 관계없는 갱신은 체크를 보존한다
+        self.run_cli('set', '--id', 'a', '--progress', '40')
+        self.assertEqual(self.gh.get_json(PROJECTS)['projects'][0]['checked'][0]['text'], '결제 연결')
+
+    def test_next_done_and_readd_clear_user_checked(self):
+        p = sample_project('a', next=['결제 연결', '문서 정리', '배포'])
+        p['checked'] = [{'text': '결제 연결', 'at': 'x'}, {'text': '문서 정리', 'at': 'x'}, {'text': '이미 빠진 과제', 'at': 'x'}]
+        self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [p]})
+        # 결제 연결: 확인 → 완료 처리 / 이미 빠진 과제: next에 없어도 '없음' 경고 없이 정리
+        code, out, err = self.run_cli('set', '--id', 'a', '--next-done', '결제 연결', '--next-done', '이미 빠진 과제')
+        self.assertEqual(code, 0, err)
+        self.assertNotIn('뺄 수 없었어요', out)
+        got = self.gh.get_json(PROJECTS)['projects'][0]
+        self.assertEqual(got['next'], ['문서 정리', '배포'])
+        self.assertEqual([c['text'] for c in got['checked']], ['문서 정리'])
+        # 문서 정리: 확인해 보니 미비 → 다시 넣으면 체크가 풀린다
+        self.run_cli('set', '--id', 'a', '--next-add', '문서 정리')
+        got = self.gh.get_json(PROJECTS)['projects'][0]
+        self.assertEqual(got['next'], ['문서 정리', '배포'])
+        self.assertNotIn('checked', got)
+
+    def test_clear_checked(self):
+        p = sample_project('a')
+        p['checked'] = [{'text': '예전 과제', 'at': 'x'}]
+        self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [p]})
+        self.run_cli('set', '--id', 'a', '--clear-checked')
+        self.assertNotIn('checked', self.gh.get_json(PROJECTS)['projects'][0])
+
     def test_next_merge_keeps_item_added_by_other_session_during_conflict(self):
         self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [sample_project('a', next=['과제1'])]})
         # 이 세션이 쓰기 직전에 Codex 세션이 과제2를 더한 상황
