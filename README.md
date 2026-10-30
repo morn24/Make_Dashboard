@@ -8,6 +8,7 @@
 - `docs/instructions/`: 로컬 PC에서 AI에게 맡길 **수행지시문**
   - `01-pc-update.md`: PC 자동 업데이트 스크립트
   - `02-android-widget.md`: 안드로이드 홈 화면 위젯
+- `scripts/dash_update.py`: PC에서 프로젝트 진행 상황을 기록하는 스크립트 ([설치 안내](docs/pc-setup.md), [AI 전역 규칙](docs/agent-rule.md), [기존 프로젝트 올리기](docs/existing-projects.md))
 - `docs/google-calendar-setup.md`: Google 캘린더 오늘 일정 연결 (Apps Script, 약 10분)
 - `integrations/google-calendar/`: 캘린더 동기화 Apps Script 코드
 

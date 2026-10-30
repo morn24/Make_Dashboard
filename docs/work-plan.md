@@ -42,7 +42,7 @@
 |---|---|---|---|
 | 1 | 데이터 구조 설계 + 데이터 저장소 생성 | 클라우드 | ✅ 완료 |
 | 2 | 웹앱 대시보드 (PWA) + GitHub Pages 배포 설정 | 클라우드 | ✅ 완료 (https://morn24.github.io/Make_Dashboard/ 배포, 폰 설치) |
-| 3 | PC 자동 업데이트: `dash_update.py` + Codex/Claude Code 규칙 | **로컬 PC** | ⬜ [수행지시문 01](instructions/01-pc-update.md) |
+| 3 | PC 자동 업데이트: `dash_update.py` + Codex/Claude Code 규칙 | **로컬 PC** | ✅ 완료 ([설치 안내](pc-setup.md), [전역 규칙](agent-rule.md)). 실제 토큰 연결과 자동 갱신은 사용자 확인 필요 |
 | 4 | 안드로이드 위젯 앱 | **로컬 PC** (Android Studio) | ⬜ [수행지시문 02](instructions/02-android-widget.md) |
 | 5 | Google 캘린더 오늘 일정 연동 (Apps Script → `calendar.json`) | 브라우저 (script.google.com) | 🟡 코드와 웹앱 완료, 사용자 설치 필요: [설정 안내](google-calendar-setup.md) |
 
