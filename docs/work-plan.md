@@ -40,8 +40,8 @@
 
 | 단계 | 내용 | 작업 장소 | 상태 |
 |---|---|---|---|
-| 1 | 데이터 구조 설계 + 데이터 저장소 생성 | 클라우드 | ✅ 설계 완료 (저장소 생성은 사용자 직접, README 1번) |
-| 2 | 웹앱 대시보드 (PWA) + GitHub Pages 배포 설정 | 클라우드 | ✅ 완료 (배포는 사용자 설정 필요, README 2~4번) |
+| 1 | 데이터 구조 설계 + 데이터 저장소 생성 | 클라우드 | ✅ 완료 |
+| 2 | 웹앱 대시보드 (PWA) + GitHub Pages 배포 설정 | 클라우드 | ✅ 완료 (https://morn24.github.io/Make_Dashboard/ 배포, 폰 설치) |
 | 3 | PC 자동 업데이트: `dash_update.py` + Codex/Claude Code 규칙 | **로컬 PC** | ⬜ [수행지시문 01](instructions/01-pc-update.md) |
 | 4 | 안드로이드 위젯 앱 | **로컬 PC** (Android Studio) | ⬜ [수행지시문 02](instructions/02-android-widget.md) |
 
