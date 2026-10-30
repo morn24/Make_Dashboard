@@ -227,11 +227,33 @@ def resolve_id(args):
     return slugify(folder) or 'project', folder
 
 
+def same_task(a, b):
+    return ' '.join(a.split()).casefold() == ' '.join(b.split()).casefold()
+
+
+def merge_next(current, add, done):
+    """끝난 항목(done)을 빼고 새 항목(add)을 뒤에 더한다. 다른 세션이 적은 항목과 순서는 그대로 둔다."""
+    missing = [d for d in done if not any(same_task(d, x) for x in current)]
+    merged = [x for x in current if not any(same_task(x, d) for d in done)]
+    for a in add:
+        if not any(same_task(a, x) for x in merged):
+            merged.append(a)
+    return merged, missing
+
+
+def clean(items):
+    return [s for s in (x.strip() for x in items or []) if s]
+
+
 def cmd_set(cfg, args):
+    if args.next is not None and (args.next_add or args.next_done):
+        raise DashError('--next(전체 교체)와 --next-add/--next-done(합치기)은 함께 쓸 수 없어요.', code=2)
     pid, folder = resolve_id(args)
     now = iso_now()
+    notes = []
 
     def change(data):
+        notes.clear()  # 충돌로 다시 적용할 때마다 새로 계산
         projects = data.setdefault('projects', [])
         p = next((x for x in projects if x.get('id') == pid), None)
         if p is None:
@@ -254,11 +276,20 @@ def cmd_set(cfg, args):
             p['tool'] = args.tool
         p['status'] = args.status or 'active'
         if args.progress is not None:
-            p['progress'] = args.progress
+            old = p.get('progress', 0)
+            if args.progress < old and not args.scope_grew:
+                # 다른 세션이 먼저 올린 진행률을 낮추지 않는다 (범위가 늘었으면 --scope-grew)
+                notes.append(f'진행률 {args.progress}%가 기존 {old}%보다 낮아 {old}%를 유지했어요. 범위가 늘었다면 --scope-grew를 붙이세요.')
+            else:
+                p['progress'] = args.progress
         if args.current is not None:
             p['current'] = args.current
         if args.next is not None:
-            p['next'] = [s for s in (x.strip() for x in args.next) if s]
+            p['next'] = clean(args.next)
+        if args.next_add or args.next_done:
+            p['next'], missing = merge_next(p.get('next') or [], clean(args.next_add), clean(args.next_done))
+            if missing:
+                notes.append('다음 과제 목록에 없어서 뺄 수 없었어요: ' + ', '.join(missing))
         if args.summary is not None:
             p['summary'] = args.summary
         p['updatedAt'] = now
@@ -267,6 +298,10 @@ def cmd_set(cfg, args):
 
     p = mutate(cfg, 'projects', change)
     print(f"대시보드 갱신: {p['name']} ({p['id']}) {p['progress']}% · {p['status']}")
+    for note in notes:
+        print(f'  참고: {note}')
+    if p.get('next'):
+        print('  다음 과제: ' + ' / '.join(p['next']))
     return 0
 
 
@@ -381,7 +416,10 @@ def build_parser():
     p.add_argument('--status', choices=STATUSES, help='생략하면 active')
     p.add_argument('--progress', type=progress_value, help='0~100')
     p.add_argument('--current', help='지금 하는 일')
+    p.add_argument('--scope-grew', action='store_true', help='범위가 늘어 진행률을 낮출 때')
     p.add_argument('--next', action='append', help='다음 과제 (여러 번 쓰면 목록, 주면 전체 교체)')
+    p.add_argument('--next-add', action='append', help='다음 과제 하나를 목록 끝에 더함 (기존 항목 유지)')
+    p.add_argument('--next-done', action='append', help='끝난 다음 과제 하나를 목록에서 뺌')
     p.add_argument('--summary', help='이번 작업 요약')
     p.set_defaults(func=cmd_set)
 

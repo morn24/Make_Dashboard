@@ -188,6 +188,47 @@ class DashUpdateTest(unittest.TestCase):
         self.run_cli('set', '--id', 'a', '--next', '새 과제')
         self.assertEqual(self.gh.get_json(PROJECTS)['projects'][0]['next'], ['새 과제'])
 
+    def test_next_add_and_done_merge_with_existing(self):
+        self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [
+            sample_project('a', next=['다른 세션 과제', '로그인 API 테스트 작성']),
+        ]})
+        code, out, err = self.run_cli('set', '--id', 'a', '--next-done', '로그인  api 테스트 작성',
+                                      '--next-add', '배포 스크립트 작성', '--next-add', '다른 세션 과제')
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.gh.get_json(PROJECTS)['projects'][0]['next'], ['다른 세션 과제', '배포 스크립트 작성'])
+
+    def test_next_merge_keeps_item_added_by_other_session_during_conflict(self):
+        self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [sample_project('a', next=['과제1'])]})
+        # 이 세션이 쓰기 직전에 Codex 세션이 과제2를 더한 상황
+        self.gh.before_put = lambda: self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [
+            sample_project('a', next=['과제1', 'Codex 과제2']),
+        ]})
+        code, _, err = self.run_cli('set', '--id', 'a', '--next-done', '과제1', '--next-add', '과제3')
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.gh.get_json(PROJECTS)['projects'][0]['next'], ['Codex 과제2', '과제3'])
+
+    def test_next_done_missing_item_is_reported(self):
+        self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [sample_project('a')]})
+        code, out, _ = self.run_cli('set', '--id', 'a', '--next-done', '없는 과제')
+        self.assertEqual(code, 0)
+        self.assertIn('없는 과제', out)
+        self.assertEqual(self.gh.get_json(PROJECTS)['projects'][0]['next'], ['예전 과제'])
+
+    def test_next_replace_and_merge_cannot_mix(self):
+        code, _, err = self.run_cli('set', '--id', 'a', '--next', 'x', '--next-add', 'y')
+        self.assertEqual(code, 2)
+        self.assertEqual(self.gh.puts, [])
+
+    def test_progress_not_lowered_unless_scope_grew(self):
+        self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [sample_project('a', progress=60)]})
+        code, out, _ = self.run_cli('set', '--id', 'a', '--progress', '40', '--current', '새 단계')
+        self.assertEqual(code, 0)
+        p = self.gh.get_json(PROJECTS)['projects'][0]
+        self.assertEqual((p['progress'], p['current']), (60, '새 단계'))
+        self.assertIn('--scope-grew', out)
+        self.run_cli('set', '--id', 'a', '--progress', '40', '--scope-grew')
+        self.assertEqual(self.gh.get_json(PROJECTS)['projects'][0]['progress'], 40)
+
     def test_set_status(self):
         self.gh.set_json(PROJECTS, {'version': 1, 'updatedAt': None, 'projects': [sample_project('a', status='active')]})
         self.run_cli('set', '--id', 'a', '--status', 'done')
