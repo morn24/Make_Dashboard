@@ -18,7 +18,7 @@ const state = {
   projects: EMPTY.projects(),
   demo: false,
   lastWrite: {}, // file -> { oldSha, at }
-  showDone: false, // 완료된 프로젝트 펼치기
+  openGroups: { paused: false, done: false }, // 홀드/완료 묶음 펼침 상태 (다시 그려도 유지)
   busy: 0,
 };
 
@@ -316,15 +316,26 @@ function render() {
   const projects = [...(state.projects.projects || [])].sort(
     (a, b) => ((order[a.status] ?? 3) - (order[b.status] ?? 3)) || String(b.updatedAt).localeCompare(String(a.updatedAt)),
   );
-  const activeCount = projects.filter((p) => p.status === 'active').length;
-  const done = projects.filter((p) => p.status === 'done');
-  const shown = state.showDone ? projects : projects.filter((p) => p.status !== 'done');
-  $('proj-count').textContent = projects.length ? `진행 중 ${activeCount}개` : '';
+  const byStatus = (s) => projects.filter((p) => (s === 'active' ? !['paused', 'done'].includes(p.status) : p.status === s));
+  const active = byStatus('active');
+  const paused = byStatus('paused');
+  const done = byStatus('done');
+  $('proj-count').textContent = projects.length ? `진행 중 ${active.length}개` : '';
   $('proj-empty').hidden = projects.length > 0;
-  $('proj-list').replaceChildren(...shown.map(renderProject));
-  const toggle = $('toggle-done');
-  toggle.hidden = done.length === 0;
-  toggle.textContent = state.showDone ? '완료된 프로젝트 숨기기' : `완료된 프로젝트 ${done.length}개 보기`;
+  // 홀드는 2개 이상일 때만 묶고, 완료는 1개라도 묶는다
+  $('proj-list').replaceChildren(
+    ...active.map(renderProject),
+    ...(paused.length >= 2 ? [renderGroup('paused', `⏸ 홀드 ${paused.length}개`, paused)] : paused.map(renderProject)),
+    ...(done.length ? [renderGroup('done', `✔ 완료 ${done.length}개`, done)] : []),
+  );
+}
+
+function renderGroup(key, title, items) {
+  const details = el('details', { class: 'group' });
+  details.open = state.openGroups[key];
+  details.addEventListener('toggle', () => { state.openGroups[key] = details.open; });
+  details.append(el('summary', {}, title), el('div', { class: 'projects' }, ...items.map(renderProject)));
+  return details;
 }
 
 const TOOL_LABEL = { 'claude-code': 'Claude Code', codex: 'Codex', other: '기타' };
@@ -470,7 +481,6 @@ function init() {
   }
   $('pm-remove').addEventListener('click', removeProject);
   $('pm-close').addEventListener('click', () => $('proj-menu').close());
-  $('toggle-done').addEventListener('click', () => { state.showDone = !state.showDone; render(); });
   $('s-clear').addEventListener('click', () => {
     if (!confirm('이 기기에서 연결 정보(토큰)를 지울까요?')) return;
     remove(CFG_KEY);
