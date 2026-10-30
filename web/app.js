@@ -21,6 +21,7 @@ const state = {
   calendar: EMPTY.calendar(),
   demo: false,
   lastWrite: {}, // file -> { oldSha, at }
+  nextScroll: {}, // 프로젝트별 다음 과제 목록 스크롤 위치 (다시 그려도 유지)
   dragging: false, // 끌어서 순서 바꾸는 중이면 다시 그리기를 미룬다
   openGroups: { paused: false, done: false }, // 홀드/완료 묶음 펼침 상태 (다시 그려도 유지)
   busy: 0,
@@ -374,10 +375,28 @@ function renderProject(p) {
   if (p.current) {
     card.append(el('div', { class: 'row' }, el('span', { class: 'label' }, '지금'), p.current));
   }
+  // 다음 과제: PC(AI)가 쓰는 next 중 사용자가 폰에서 체크한 것(checked)은 아래로 내려 줄을 긋는다.
+  // 체크는 next를 건드리지 않고 checked에만 기록 → 다음 작업 때 AI가 확인하고 정리한다.
   const next = Array.isArray(p.next) ? p.next.filter(Boolean) : [];
-  if (next.length) {
-    const ol = el('ol', {}, ...next.slice(0, 3).map((n, i) => el('li', i === 0 ? { class: 'next-first' } : {}, n)));
-    card.append(el('div', { class: 'row' }, el('span', { class: 'label' }, '다음 과제'), ol));
+  const checked = (Array.isArray(p.checked) ? p.checked : []).filter((c) => c && c.text);
+  const checkedSet = new Set(checked.map((c) => c.text));
+  const open = next.filter((n) => !checkedSet.has(n));
+  if (open.length || checked.length) {
+    const item = (text, done, first) => {
+      const cb = el('input', { type: 'checkbox' });
+      cb.checked = done;
+      cb.addEventListener('change', () => toggleNext(p.id, text, cb.checked));
+      return el('li', { class: `${done ? 'done' : ''}${first ? ' next-first' : ''}` },
+        el('label', {}, cb, el('span', {}, text)));
+    };
+    const list = el('ul', { class: 'next-list' },
+      ...open.map((n, i) => item(n, false, i === 0)),
+      ...checked.map((c) => item(c.text, true, false)),
+    );
+    list.addEventListener('scroll', () => { state.nextScroll[p.id] = list.scrollTop; });
+    requestAnimationFrame(() => { list.scrollTop = state.nextScroll[p.id] || 0; });
+    const title = `다음 과제${open.length ? ` ${open.length}` : ''}${checked.length ? ` · 확인 ${checked.length}` : ''}`;
+    card.append(el('div', { class: 'row' }, el('span', { class: 'label' }, title), list));
   }
   const meta = [p.summary, timeAgo(p.updatedAt)].filter(Boolean).join(' · ');
   if (meta) card.append(el('div', { class: 'meta' }, meta));
@@ -533,6 +552,18 @@ function setProjectStatus(status) {
     if (p) p.status = status;
     return d;
   }, `project: ${id} 상태 → ${status}`);
+}
+
+// 사용자가 다음 과제를 직접 확인 처리 (AI에게 "확인했어"라고 말하지 않아도 되게)
+function toggleNext(id, text, done) {
+  changeProjects((d) => {
+    const p = d.projects.find((x) => x.id === id);
+    if (!p) return d;
+    const rest = (Array.isArray(p.checked) ? p.checked : []).filter((c) => c && c.text !== text);
+    p.checked = done ? [...rest, { text, at: isoNow() }] : rest;
+    if (!p.checked.length) delete p.checked;
+    return d;
+  }, `project: ${id} 사용자 확인 ${done ? '체크' : '해제'} - ${text}`);
 }
 
 function removeProject() {

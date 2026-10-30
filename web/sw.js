@@ -1,6 +1,6 @@
 'use strict';
 // 앱 화면 파일만 캐시해서 오프라인에서도 열리게 한다. 데이터(api.github.com)는 건드리지 않는다.
-const CACHE = 'dash-shell-v5';
+const CACHE = 'dash-shell-v6';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {
