@@ -9,7 +9,7 @@
 - 브랜치: `main`
 - 파일 2개
   - `data/todos.json`: 할 일 목록 (주로 **폰**에서 수정)
-  - `data/projects.json`: 프로젝트 진행 상황 (주로 **PC**의 Codex/Claude Code가 수정)
+  - `data/projects.json`: 프로젝트 진행 상황 (주로 **PC**의 Codex/Claude Code가 수정. 폰에서는 상태 변경과 삭제만)
 
 파일을 둘로 나눈 이유는 폰과 PC가 동시에 같은 파일을 고쳐 충돌하는 일을 줄이기 위해서입니다.
 
@@ -86,7 +86,7 @@
 | `id` | 프로젝트 고유값. 보통 폴더/저장소 이름을 소문자-하이픈으로 |
 | `name` | 화면에 보일 이름 |
 | `tool` | `"claude-code"`, `"codex"`, `"other"` |
-| `status` | `"active"`(진행 중), `"paused"`(멈춤), `"done"`(완료) |
+| `status` | `"active"`(진행 중), `"paused"`(홀드), `"done"`(완료) |
 | `progress` | 0~100 정수 (%) |
 | `current` | 지금 하는 일 |
 | `next` | 다음 과제 목록. **첫 번째가 바로 다음 할 일** |
@@ -94,3 +94,10 @@
 | `updatedAt` | 이 프로젝트를 마지막으로 갱신한 시각 |
 
 정렬: `active` → `paused` → `done`, 같은 상태끼리는 `updatedAt` 최신순.
+
+**상태 규칙**
+
+- PC에서 작업 기록(`set`)을 하면 상태를 따로 지정하지 않는 한 `active`가 된다. (홀드였던 프로젝트도 다시 작업하면 자동으로 진행 중)
+- 홀드, 완료, 삭제는 사용자가 정한다: 폰 웹앱 카드의 `⋯` 메뉴, 또는 PC에서 `set --status paused|done`, `remove`.
+- 완료(`done`) 프로젝트는 웹앱에서 기본으로 접혀 있다. 위젯은 `active`만 보여준다.
+- 폰에서 상태를 바꿀 때는 `status`만 바꾸고 프로젝트의 `updatedAt`은 그대로 둔다. (`updatedAt` = 마지막 작업 시각)

@@ -18,6 +18,7 @@ const state = {
   projects: EMPTY.projects(),
   demo: false,
   lastWrite: {}, // file -> { oldSha, at }
+  showDone: false, // 완료된 프로젝트 펼치기
   busy: 0,
 };
 
@@ -223,16 +224,16 @@ function newId() {
 }
 
 // 화면을 먼저 바꾸고(낙관적 반영), 저장이 실패하면 서버 상태로 되돌린다
-async function changeTodos(change, message) {
-  const before = state.todos;
-  state.todos = change(structuredClone(before));
+async function changeFile(file, change, message) {
+  const before = state[file];
+  state[file] = change(structuredClone(before));
   render();
   setBusy(+1);
   try {
-    state.todos = await mutate('todos', change, message);
+    state[file] = await mutate(file, change, message);
     if (!state.demo) setSync(`저장됨 · ${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`);
   } catch (e) {
-    state.todos = before;
+    state[file] = before;
     toast(`저장 실패: ${errorText(e)}`);
     refresh({ quiet: true });
   } finally {
@@ -240,6 +241,8 @@ async function changeTodos(change, message) {
     render();
   }
 }
+const changeTodos = (change, message) => changeFile('todos', change, message);
+const changeProjects = (change, message) => changeFile('projects', change, message);
 
 function toggleTodo(id) {
   const today = localDate();
@@ -314,13 +317,18 @@ function render() {
     (a, b) => ((order[a.status] ?? 3) - (order[b.status] ?? 3)) || String(b.updatedAt).localeCompare(String(a.updatedAt)),
   );
   const activeCount = projects.filter((p) => p.status === 'active').length;
+  const done = projects.filter((p) => p.status === 'done');
+  const shown = state.showDone ? projects : projects.filter((p) => p.status !== 'done');
   $('proj-count').textContent = projects.length ? `진행 중 ${activeCount}개` : '';
   $('proj-empty').hidden = projects.length > 0;
-  $('proj-list').replaceChildren(...projects.map(renderProject));
+  $('proj-list').replaceChildren(...shown.map(renderProject));
+  const toggle = $('toggle-done');
+  toggle.hidden = done.length === 0;
+  toggle.textContent = state.showDone ? '완료된 프로젝트 숨기기' : `완료된 프로젝트 ${done.length}개 보기`;
 }
 
 const TOOL_LABEL = { 'claude-code': 'Claude Code', codex: 'Codex', other: '기타' };
-const STATUS_LABEL = { active: '', paused: '멈춤', done: '완료' };
+const STATUS_LABEL = { active: '', paused: '홀드', done: '완료' };
 
 function renderProject(p) {
   const progress = Math.max(0, Math.min(100, Math.round(Number(p.progress) || 0)));
@@ -332,6 +340,9 @@ function renderProject(p) {
   );
   if (STATUS_LABEL[p.status]) head.append(el('span', { class: 'status' }, STATUS_LABEL[p.status]));
   head.append(el('span', { class: 'pct' }, `${progress}%`));
+  const more = el('button', { class: 'del', type: 'button', 'aria-label': `${p.name || p.id} 상태 변경`, title: '상태 변경' }, '⋯');
+  more.addEventListener('click', () => openProjectMenu(p.id));
+  head.append(more);
   const fill = el('div', { class: `bar-fill${progress === 100 ? ' full' : ''}` });
   fill.style.width = `${progress}%`;
   card.append(head, el('div', { class: 'bar' }, fill));
@@ -347,6 +358,39 @@ function renderProject(p) {
   const meta = [p.summary, timeAgo(p.updatedAt)].filter(Boolean).join(' · ');
   if (meta) card.append(el('div', { class: 'meta' }, meta));
   return card;
+}
+
+// ---------- 프로젝트 상태 변경 (진행 중 / 홀드 / 완료 / 삭제) ----------
+
+let menuProjectId = null;
+
+function openProjectMenu(id) {
+  const p = (state.projects.projects || []).find((x) => x.id === id);
+  if (!p) return;
+  menuProjectId = id;
+  $('pm-title').textContent = p.name || p.id;
+  for (const btn of document.querySelectorAll('#proj-menu [data-status]')) {
+    btn.disabled = btn.dataset.status === (p.status || 'active');
+  }
+  $('proj-menu').showModal();
+}
+
+function setProjectStatus(status) {
+  const id = menuProjectId;
+  $('proj-menu').close();
+  changeProjects((d) => {
+    const p = d.projects.find((x) => x.id === id);
+    if (p) p.status = status;
+    return d;
+  }, `project: ${id} 상태 → ${status}`);
+}
+
+function removeProject() {
+  const id = menuProjectId;
+  const p = (state.projects.projects || []).find((x) => x.id === id);
+  if (!p || !confirm(`"${p.name || p.id}" 을(를) 대시보드에서 뺄까요?\n(PC에서 이 프로젝트를 다시 작업하면 다시 나타나요)`)) return;
+  $('proj-menu').close();
+  changeProjects((d) => { d.projects = d.projects.filter((x) => x.id !== id); return d; }, `project: ${id} 삭제`);
 }
 
 function el(tag, attrs = {}, ...children) {
@@ -421,6 +465,12 @@ function init() {
   $('banner-settings').addEventListener('click', openSettings);
   $('settings-form').addEventListener('submit', saveSettings);
   $('s-cancel').addEventListener('click', () => $('settings').close());
+  for (const btn of document.querySelectorAll('#proj-menu [data-status]')) {
+    btn.addEventListener('click', () => setProjectStatus(btn.dataset.status));
+  }
+  $('pm-remove').addEventListener('click', removeProject);
+  $('pm-close').addEventListener('click', () => $('proj-menu').close());
+  $('toggle-done').addEventListener('click', () => { state.showDone = !state.showDone; render(); });
   $('s-clear').addEventListener('click', () => {
     if (!confirm('이 기기에서 연결 정보(토큰)를 지울까요?')) return;
     remove(CFG_KEY);

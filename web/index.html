@@ -57,6 +57,7 @@
       </div>
       <div id="proj-list" class="projects"></div>
       <p class="empty" id="proj-empty" hidden>아직 프로젝트가 없어요. PC에서 작업하면 여기에 나타나요.</p>
+      <button class="link small" id="toggle-done" hidden></button>
     </section>
   </main>
 
@@ -79,6 +80,21 @@
         <button type="submit" class="primary" id="s-save">연결 확인 후 저장</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="proj-menu">
+    <h2 id="pm-title"></h2>
+    <p class="help">프로젝트 상태를 바꿔요. 홀드나 완료로 바꾼 프로젝트도 PC에서 다시 작업하면 자동으로 "진행 중"이 돼요.</p>
+    <div class="menu-list">
+      <button type="button" data-status="active">▶ 진행 중</button>
+      <button type="button" data-status="paused">⏸ 홀드</button>
+      <button type="button" data-status="done">✔ 완료</button>
+      <button type="button" class="danger" id="pm-remove">대시보드에서 빼기</button>
+    </div>
+    <div class="dialog-actions">
+      <span class="grow"></span>
+      <button type="button" id="pm-close">닫기</button>
+    </div>
   </dialog>
 
   <script src="app.js"></script>

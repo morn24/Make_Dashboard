@@ -177,6 +177,14 @@ dialog label input {
   background: none; border: 1px solid var(--line); padding: 10px 14px; border-radius: 10px;
 }
 .grow { flex: 1; }
+.menu-list { display: grid; gap: 8px; margin-top: 12px; }
+.menu-list button {
+  text-align: left; padding: 12px 14px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg);
+}
+.menu-list button:disabled { opacity: .45; cursor: default; }
+.menu-list .danger { color: var(--danger); }
+.proj .del { width: 28px; height: 28px; margin-right: -6px; }
 
 @media (max-width: 360px) {
   .add { flex-wrap: wrap; }
