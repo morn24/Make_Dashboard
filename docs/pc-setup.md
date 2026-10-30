@@ -98,11 +98,15 @@ python "$HOME/.dashboard/dash_update.py" remove --id test --yes
 ```
 python dash_update.py set [--id ID] [--name 이름] [--tool claude-code|codex|other]
                           [--status active|paused|done] [--progress 0~100]
-                          [--current "지금 하는 일"] [--next "과제" ...] [--summary "요약"]
+                          [--current "지금 하는 일"] [--summary "요약"]
+                          [--next-add "과제" ...] [--next-done "끝낸 과제" ...]
+                          [--next "과제" ...] [--scope-grew]
 python dash_update.py show [--id ID] [--all]
 python dash_update.py remove --id ID [--yes]
 python dash_update.py todo-add "할 일" [--daily]
 ```
 
-- `set`은 준 값만 바꿉니다. `--next`를 주면 목록 전체가 바뀝니다. `--status`를 생략하면 진행 중이 됩니다.
+- `set`은 준 값만 바꿉니다. `--status`를 생략하면 진행 중이 됩니다.
+- 다음 과제: `--next-add`는 끝에 더하고 `--next-done`은 뺍니다. 다른 세션이 적은 과제는 그대로 남습니다. `--next`는 목록 전체를 바꿉니다.
+- 진행률은 기존 값보다 낮게 주면 무시됩니다. 범위가 늘어서 낮춰야 할 때만 `--scope-grew`를 붙입니다.
 - 설정 우선순위: 명령줄 옵션(`--repo`, `--branch`, `--token-file`) → 환경변수(`DASH_TOKEN`, `DASH_REPO`, `DASH_BRANCH`) → `~/.dashboard/token`
