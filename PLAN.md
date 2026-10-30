@@ -25,11 +25,12 @@
 
 ## 단계 4: 안드로이드 위젯 ([수행지시문 02](docs/instructions/02-android-widget.md))
 
-- [ ] 위젯 앱 만들고 `./gradlew test assembleDebug` 통과
+- [x] 안드로이드 구현 계획 구체화와 Luna(max) 세션용 업무계획서·수행지시문 작성
+- [x] 위젯 앱 만들고 `./gradlew test assembleDebug` 통과
 - [ ] 갤럭시 S25 홈 화면에 3가지 크기 위젯 표시 (사용자 확인)
 - [ ] 위젯 체크와 웹앱 변경이 서로 반영되는지 확인 (사용자 확인)
-- [ ] 오프라인에서 마지막 데이터와 오류 문구 표시, 자정에 매일 할 일 초기화
-- [ ] `docs/android-setup.md` 작성
+- [x] 오프라인에서 마지막 데이터와 오류 문구 표시, 자정에 매일 할 일 초기화 (자동 검증)
+- [x] `docs/android-setup.md` 작성
 
 ## 단계 5: Google 캘린더 연동
 

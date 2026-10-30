@@ -109,12 +109,21 @@
 - 명령(Windows, `android/`에서 실행): `gradlew.bat test assembleDebug`
 - 결과: **성공**, `BUILD SUCCESSFUL in 1m 12s`
 - 테스트: JUnit 51개 통과, 실패·오류 0개. 다음 현지 자정 직후 지연과 DST가 있는 23시간 날짜 경계, 완료된 todo의 이전 sha를 90초 동안 무시하고 캐시를 유지하는 동작을 확인
-- 구현: 네트워크 연결 조건의 고유 30분 갱신, 설정 저장·위젯 추가·수동 새로고침의 고유 즉시 갱신. 자정 작업은 네트워크 조건 없이 캐시로 위젯을 먼저 다시 그린 뒤 다음 현지 자정을 예약하고 온라인 갱신을 요청
+- 구현: 네트워크 연결 조건의 고유 30분 갱신, 설정 저장·위젯 추가·수동 새로고침의 고유 즉시 갱신. 수동 갱신은 오프라인에서도 바로 시도해 캐시와 오류를 표시. 자정 작업은 네트워크 조건 없이 캐시로 위젯을 먼저 다시 그린 뒤 다음 현지 자정을 예약하고 네트워크 갱신을 요청
 - 날짜/시각/시간대/부팅 브로드캐스트는 자정 예약을 재설정하고 캐시를 다시 그리며 네트워크 갱신을 요청. 마지막 위젯 제거 때 위젯 갱신 예약을 취소
 - 제약: WorkManager는 정확한 자정이나 30분 간격 상한을 보장하지 않음. 예약된 Worker의 실제 절전·부팅 복구 동작과 S25 표시 확인은 기기에서 아직 수행하지 않음
 - 런타임 경고: DataStore 1.3.0 내부 protobuf의 JBR 25 `sun.misc.Unsafe` 폐기 경고가 출력됐으나 테스트와 APK 빌드는 성공
 - APK: `android/app/build/outputs/apk/debug/app-debug.apk`
 
+### 8단계: 설치 안내와 최종 계획 반영
+
+- 실행일: 2026-10-31 (KST)
+- 최종 명령(Windows, `android/`에서 실행): `gradlew.bat test assembleDebug`
+- 결과: **성공**, 최종 실행 `BUILD SUCCESSFUL in 26s`; 42개 작업 중 7개가 실행되고 나머지는 `UP-TO-DATE`. JUnit 51개 통과, 실패·오류 0개
+- 문서: [`docs/android-setup.md`](android-setup.md)에 Android Studio/USB와 APK 설치, 토큰 권한·Keystore 재연결, 위젯 추가, 상호 반영, 오프라인·자정 확인 절차 작성
+- 계획: 자동 검증으로 확인한 구현·오프라인 캐시/오류·자정 날짜 규칙·설치 문서만 `PLAN.md`에서 완료 처리. S25 표시와 두 방향 상호 반영은 체크하지 않음
+- APK: `android/app/build/outputs/apk/debug/app-debug.apk`
+
 ## 실제 기기 확인
 
-실기기 확인 전. 에뮬레이터와 Galaxy S25의 렌더링 확인은 사용자가 이어서 할 수 있도록 설치 안내에 절차를 남길 예정이다.
+이 작업에서는 Android 에뮬레이터나 실제 휴대전화를 사용하지 않았다. 따라서 Galaxy S25의 3크기 렌더링, 다크 모드·리사이즈, Android Keystore UI, WorkManager의 절전/재부팅 복구, 비행기 모드에서의 실제 위젯 표시, 위젯↔웹앱 상호 반영은 **미확인**이다. 이어서 할 사용자 확인 절차는 [`docs/android-setup.md`](android-setup.md)에 있다.

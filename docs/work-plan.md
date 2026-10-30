@@ -43,7 +43,7 @@
 | 1 | 데이터 구조 설계 + 데이터 저장소 생성 | 클라우드 | ✅ 완료 |
 | 2 | 웹앱 대시보드 (PWA) + GitHub Pages 배포 설정 | 클라우드 | ✅ 완료 (https://morn24.github.io/Make_Dashboard/ 배포, 폰 설치) |
 | 3 | PC 자동 업데이트: `dash_update.py` + Codex/Claude Code 규칙 | **로컬 PC** | ✅ 완료 ([설치 안내](pc-setup.md), [전역 규칙](agent-rule.md)). Claude Code·Codex 자동 갱신 확인 |
-| 4 | 안드로이드 위젯 앱 | **로컬 PC** (Android Studio) | ⬜ [수행지시문 02](instructions/02-android-widget.md) |
+| 4 | 안드로이드 위젯 앱 | **로컬 PC** (Android Studio) | 📝 앱 구현·자동 검증 완료 (51개 테스트, APK 빌드 통과). Galaxy S25 화면·상호 반영 사용자 확인 대기. [설치 안내](android-setup.md) · [검증 기록](android-verification.md) |
 | 5 | Google 캘린더 오늘 일정 연동 (Apps Script → `calendar.json`) | 브라우저 (script.google.com) | ✅ 완료 (Apps Script 설치, [설정 안내](google-calendar-setup.md)) |
 
 ### 단계 3: PC 자동 업데이트 (예상 1~2시간)
@@ -53,11 +53,14 @@
 
 ### 단계 4: 안드로이드 위젯 (예상 반나절~하루)
 
+- 구체 설계·검증 게이트: [안드로이드 위젯 업무계획서](android-work-plan.md). 별도 Luna(`gpt-6-luna`)·max 세션은 [구현 수행지시문](instructions/02-android-widget-luna.md)을 따른다.
+- 2026-10-31 자동 구현 기록: Kotlin/Glance 3크기 위젯, 암호화 설정, GitHub 읽기·체크 Worker, 30분/현지 자정 예약 구현. `gradlew.bat test assembleDebug` 통과, JUnit 51개 통과. 오프라인 캐시·체크 오류/원복과 현지 자정/DST 규칙은 단위 테스트로 확인했다. 실제 Galaxy S25 표시·수동 체크와 웹앱 간 상호 반영은 아직 미확인이다. 설치 절차는 [Android 설치 안내](android-setup.md)에 있다.
 - 산출물: `android/` 폴더의 Kotlin 프로젝트, 폰에 설치된 앱과 위젯
 - 완료 기준
   - 홈 화면에 위젯을 추가하면 오늘 할 일 진행률, 미완료 할 일, 프로젝트별 진행률과 다음 과제가 보인다.
   - 위젯에서 할 일을 탭하면 완료로 바뀌고, 웹앱에도 반영된다.
-  - 30분 이내 주기와 새로고침 버튼으로 갱신된다.
+  - 30분 주기 작업과 새로고침 버튼으로 갱신한다. Android 절전 정책 때문에 정확한 실행 시각이나 30분 상한은 보장하지 않는다.
+  - 앱 빌드·자동 테스트와 S25 사용자 확인을 구분하고, 수동 확인까지 끝나야 단계 전체를 완료로 표시한다.
 
 ## 5. 위험 요소와 대응
 

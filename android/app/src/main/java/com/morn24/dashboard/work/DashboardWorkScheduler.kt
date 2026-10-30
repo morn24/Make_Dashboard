@@ -47,11 +47,7 @@ object DashboardWorkScheduler {
     }
 
     fun requestRefresh(context: Context) {
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
         val request = OneTimeWorkRequestBuilder<RefreshDashboardWorker>()
-            .setConstraints(constraints)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(IMMEDIATE_REFRESH, ExistingWorkPolicy.KEEP, request)
     }
