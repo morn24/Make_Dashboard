@@ -61,6 +61,16 @@
 - 수정 이력: 첫 실행에서 테스트 기준 시각이 일정 시작 전인 fixture 오류 1건을 발견해 바로잡고 전체 명령을 다시 통과시킴
 - APK: `android/app/build/outputs/apk/debug/app-debug.apk`
 
+### 3단계: GitHub 저장소·DataStore·토큰 암호화
+
+- 실행일: 2026-10-31 (KST)
+- 명령(Windows, `android/`에서 실행): `gradlew.bat test assembleDebug`
+- 결과: **성공**, `BUILD SUCCESSFUL in 6s`
+- 테스트: JUnit 30개 통과. MockWebServer에서 401/403/404, Contents API `ref`/branch/sha/base64/UTF-8 줄바꿈, unknown 필드·중첩 값 왕복, 409 및 422 재읽기 재시도 성공, 4회 충돌 실패, 삭제 todo, 깨진 JSON을 확인. Preferences DataStore 캐시·설정 세대·저장소 변경 시 캐시 무효화와 AES-GCM UTF-8 암·복호화/변조 거부를 확인
+- 실제 Android Keystore: 로컬 JVM 단위 테스트는 주입된 테스트 AES 키를 사용. 기기 Keystore 자체의 생성/복원 동작은 S25 수동 확인 항목으로 남음
+- 런타임 경고: DataStore 1.3.0의 내부 protobuf가 JBR 25에서 `sun.misc.Unsafe` 폐기 경고를 출력했으나 명령은 성공. 이후 Android 기기에서의 동작은 미확인
+- APK: `android/app/build/outputs/apk/debug/app-debug.apk`
+
 ## 실제 기기 확인
 
 실기기 확인 전. 에뮬레이터와 Galaxy S25의 렌더링 확인은 사용자가 이어서 할 수 있도록 설치 안내에 절차를 남길 예정이다.
