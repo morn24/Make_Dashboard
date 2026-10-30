@@ -91,6 +91,18 @@
 - 런타임 경고: DataStore 1.3.0 내부 protobuf의 JBR 25 `sun.misc.Unsafe` 폐기 경고가 계속 출력됐으나 테스트와 APK 빌드는 성공
 - APK: `android/app/build/outputs/apk/debug/app-debug.apk`
 
+### 6단계: 목표값 체크와 실패 복구
+
+- 실행일: 2026-10-31 (KST)
+- 명령(Windows, `android/`에서 실행): `gradlew.bat test assembleDebug`
+- 결과: **성공**, 최종 실행 `BUILD SUCCESSFUL in 35s`
+- 테스트: JUnit 47개 통과, 실패·오류 0개. DataStore의 체크 저장·중복 방지·저장소 변경 시 정리, 네트워크 없이 캐시에서 목표값을 먼저 표시, 성공 시 sha·원본 미지 필드 보존, 409 실패와 삭제 todo 복구, 설정 세대 변경 중단을 확인
+- 구현: 체크 당시 현지 날짜와 완료 목표값을 지속 저장하고, 항목별 고유 OneTimeWork로 `GitHubRepo`의 GET→sha PUT 로직을 호출. 동일 항목 중복을 막고 체크 처리와 후속 갱신을 앱 프로세스 내 Mutex로 직렬화. 오류는 짧은 한국어로 캐시에 기록하고 해당 보류 표시만 제거
+- 오프라인 처리: 체크 Worker에 네트워크 제약을 걸어 대기시키지 않고 OkHttp의 연결/읽기/전체 호출 제한 안에서 실패 후 원복하도록 구현
+- 미수행: 실기기 네트워크 차단·프로세스 종료 후 복구·상호 반영은 폰에서 확인하지 않음. 단위 테스트는 Processor/Store 경로를 확인하며 WorkManager 실제 실행은 S25 확인 절차에 남김
+- 런타임 경고: DataStore 1.3.0 내부 protobuf의 JBR 25 `sun.misc.Unsafe` 폐기 경고가 출력됐으나 테스트와 APK 빌드는 성공
+- APK: `android/app/build/outputs/apk/debug/app-debug.apk`
+
 ## 실제 기기 확인
 
 실기기 확인 전. 에뮬레이터와 Galaxy S25의 렌더링 확인은 사용자가 이어서 할 수 있도록 설치 안내에 절차를 남길 예정이다.

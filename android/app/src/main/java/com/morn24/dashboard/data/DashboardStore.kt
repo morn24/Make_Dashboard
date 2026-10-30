@@ -9,6 +9,9 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 
 private val Context.dashboardPreferencesDataStore: DataStore<Preferences> by preferencesDataStore(name = "dashboard")
 
@@ -119,6 +122,47 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
         return recorded
     }
 
+    suspend fun pendingToggles(): List<PendingTodoToggle> = dataStore.data.first().asMap().entries
+        .asSequence()
+        .filter { it.key.name.startsWith(PENDING_PREFIX) }
+        .mapNotNull { it.value as? String }
+        .mapNotNull { raw -> runCatching { pendingJson.decodeFromString<PendingTodoToggle>(raw) }.getOrNull() }
+        .sortedBy(PendingTodoToggle::createdAtMillis)
+        .toList()
+
+    suspend fun pendingToggle(todoId: String): PendingTodoToggle? {
+        val raw = dataStore.data.first()[pendingToggleKey(todoId)] ?: return null
+        return runCatching { pendingJson.decodeFromString<PendingTodoToggle>(raw) }.getOrNull()
+    }
+
+    /** Atomically rejects duplicate todo actions and actions from an obsolete settings form. */
+    suspend fun enqueuePendingToggle(toggle: PendingTodoToggle): Boolean {
+        var accepted = false
+        dataStore.edit { preferences ->
+            if ((preferences[SettingsKeys.generation] ?: 0L) != toggle.expectedGeneration) return@edit
+            val key = pendingToggleKey(toggle.todoId)
+            if (preferences[key] != null) return@edit
+            preferences[key] = pendingJson.encodeToString(toggle)
+            accepted = true
+        }
+        return accepted
+    }
+
+    suspend fun removePendingToggle(todoId: String, operationId: String): Boolean {
+        var removed = false
+        dataStore.edit { preferences ->
+            val key = pendingToggleKey(todoId)
+            val current = preferences[key]?.let { raw ->
+                runCatching { pendingJson.decodeFromString<PendingTodoToggle>(raw) }.getOrNull()
+            }
+            if (current?.operationId == operationId) {
+                preferences.remove(key)
+                removed = true
+            }
+        }
+        return removed
+    }
+
     private fun clearCachedFiles(preferences: MutablePreferences) {
         DashboardFile.entries.forEach { file ->
             preferences.remove(cacheRawKey(file))
@@ -143,11 +187,13 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
     companion object {
         private const val CACHE_PREFIX = "cache_"
         private const val PENDING_PREFIX = "pending_toggle_"
+        private val pendingJson = Json
 
         private fun cacheRawKey(file: DashboardFile) = stringPreferencesKey("${CACHE_PREFIX}${file.key}_json")
         private fun cacheShaKey(file: DashboardFile) = stringPreferencesKey("${CACHE_PREFIX}${file.key}_sha")
         private fun cacheSuccessKey(file: DashboardFile) = longPreferencesKey("${CACHE_PREFIX}${file.key}_success")
         private fun cacheErrorKey(file: DashboardFile) = stringPreferencesKey("${CACHE_PREFIX}${file.key}_error")
+        private fun pendingToggleKey(todoId: String) = stringPreferencesKey("$PENDING_PREFIX$todoId")
 
         fun from(context: Context): DashboardStore = DashboardStore(context.applicationContext.dashboardPreferencesDataStore)
     }

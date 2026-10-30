@@ -110,6 +110,32 @@ class DashboardStoreTest {
     }
 
     @Test
+    fun pendingTodoTogglesAreDurableDeduplicatedAndClearedOnConnectionChange() = runBlocking {
+        val generation = store.saveSettings(
+            DashboardSettings(encryptedToken = EncryptedToken("iv", "cipher")),
+        )
+        val action = PendingTodoToggle(
+            operationId = "operation-1",
+            todoId = "todo-1",
+            targetDoneOn = "2026-10-31",
+            tappedDate = "2026-10-31",
+            expectedGeneration = generation,
+            createdAtMillis = 12L,
+        )
+
+        assertTrue(store.enqueuePendingToggle(action))
+        assertFalse(store.enqueuePendingToggle(action.copy(operationId = "operation-2")))
+        assertEquals(listOf(action), store.pendingToggles())
+        assertFalse(store.removePendingToggle("todo-1", "operation-2"))
+        assertTrue(store.removePendingToggle("todo-1", "operation-1"))
+        assertNull(store.pendingToggle("todo-1"))
+
+        assertTrue(store.enqueuePendingToggle(action))
+        store.saveSettings(store.settings().copy(repository = "changed-repository"))
+        assertTrue(store.pendingToggles().isEmpty())
+    }
+
+    @Test
     fun repositoryChangeClearsAllRemoteCachesAndIncrementsGeneration() = runBlocking {
         store.saveSuccessfulFile(DashboardFile.PROJECTS, "{\"projects\":[]}", "sha", 100L)
         val first = store.settings().copy(encryptedToken = EncryptedToken("iv", "cipher"))

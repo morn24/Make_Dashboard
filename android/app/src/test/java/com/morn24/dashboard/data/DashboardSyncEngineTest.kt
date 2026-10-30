@@ -141,6 +141,30 @@ class DashboardSyncEngineTest {
         assertEquals(WidgetConnectionState.REAUTHENTICATE, lostKeySnapshot.connectionState)
     }
 
+    @Test
+    fun cachedRenderOverlaysPendingTargetWithoutNetworkAccess() = runBlocking {
+        connectStore()
+        val generation = store.generation()
+        val rawTodos = """{"version":1,"items":[{"id":"todo-1","title":"캐시 항목","repeat":"daily","doneOn":null}]}"""
+        store.saveSuccessfulFile(DashboardFile.TODOS, rawTodos, "sha", 50L)
+        store.enqueuePendingToggle(
+            PendingTodoToggle(
+                operationId = "operation-1",
+                todoId = "todo-1",
+                targetDoneOn = "2026-10-31",
+                tappedDate = "2026-10-31",
+                expectedGeneration = generation,
+                createdAtMillis = 60L,
+            ),
+        )
+
+        val snapshot = engine(repositoryFactory()).loadCached()
+
+        assertEquals("2026-10-31", snapshot.todos.single().doneOn)
+        assertEquals(setOf("todo-1"), snapshot.pendingTodoIds)
+        assertEquals("sha", store.cached(DashboardFile.TODOS).sha)
+    }
+
     private suspend fun connectStore() {
         store.saveSettings(DashboardSettings(encryptedToken = cipher.encrypt("test-only-token")))
     }

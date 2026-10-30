@@ -11,6 +11,7 @@ import androidx.glance.GlanceModifier
 import androidx.glance.LocalSize
 import androidx.glance.LocalContext
 import androidx.glance.action.ActionParameters
+import androidx.glance.action.actionParametersOf
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.SizeMode
@@ -43,6 +44,7 @@ import com.morn24.dashboard.domain.CalendarOccurrence
 import com.morn24.dashboard.domain.CalendarRules
 import com.morn24.dashboard.domain.Project
 import com.morn24.dashboard.domain.ProjectRules
+import com.morn24.dashboard.domain.Todo
 import com.morn24.dashboard.domain.TodoRules
 import com.morn24.dashboard.ui.SettingsActivity
 import java.time.Clock
@@ -68,7 +70,7 @@ class DashboardWidget : GlanceAppWidget() {
             store = store,
             repositoryFactory = DefaultDashboardRepositoryFactory(),
             tokenCipher = TokenCipher(AndroidKeystoreAesKeyProvider()),
-        ).load()
+        ).loadCached()
 
         provideContent {
             GlanceTheme(colors = DynamicThemeColorProviders) {
@@ -189,7 +191,7 @@ private fun MediumDashboard(snapshot: DashboardSnapshot) {
         Column(modifier = GlanceModifier.defaultWeight()) {
             Text("미완료 할 일", style = labelStyle())
             if (pendingTodos.isEmpty()) Text("없음", style = smallTextStyle())
-            pendingTodos.forEach { todo -> Text("○ ${todo.title}", maxLines = 1, style = smallTextStyle()) }
+            pendingTodos.forEach { todo -> TodoToggleRow(todo, today.toString(), snapshot.pendingTodoIds) }
         }
     }
     activeProjects.firstOrNull()?.let { project ->
@@ -225,7 +227,7 @@ private fun LargeDashboard(snapshot: DashboardSnapshot) {
         Column(modifier = GlanceModifier.defaultWeight()) {
             Text("미완료 할 일", style = labelStyle())
             if (pendingTodos.isEmpty()) Text("없음", style = smallTextStyle())
-            pendingTodos.forEach { todo -> Text("○ ${todo.title}", maxLines = 1, style = smallTextStyle()) }
+            pendingTodos.forEach { todo -> TodoToggleRow(todo, todayText, snapshot.pendingTodoIds) }
             Spacer(GlanceModifier.height(8.dp))
             if (snapshot.calendarAvailable) {
                 Text("오늘 일정", style = labelStyle())
@@ -323,6 +325,45 @@ private fun ProjectLine(project: Project) {
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
+private fun TodoToggleRow(todo: Todo, today: String, pendingTodoIds: Set<String>) {
+    val isDone = TodoRules.isDone(todo, today)
+    val isPending = todo.id in pendingTodoIds
+    val targetDoneOn = if (isDone) CLEAR_DONE_TARGET else today
+    val action = actionRunCallback<ToggleTodoAction>(
+        parameters = actionParametersOf(
+            TodoToggleParameters.todoId.to(todo.id),
+            TodoToggleParameters.targetDoneOn.to(targetDoneOn),
+            TodoToggleParameters.tappedDate.to(today),
+        ),
+    )
+    val modifier = if (isPending) {
+        GlanceModifier.fillMaxWidth().padding(vertical = 1.dp)
+    } else {
+        GlanceModifier.fillMaxWidth().clickable(action).padding(vertical = 1.dp)
+    }
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            when {
+                isPending -> "…"
+                isDone -> "☑"
+                else -> "□"
+            },
+            style = TextStyle(
+                fontSize = 12.sp,
+                color = if (isDone) GlanceTheme.colors.primary else GlanceTheme.colors.onSurfaceVariant,
+            ),
+        )
+        Text(
+            todo.title,
+            modifier = GlanceModifier.defaultWeight().padding(start = 4.dp),
+            maxLines = 1,
+            style = TextStyle(fontSize = 10.sp, color = GlanceTheme.colors.onSurface),
+        )
+    }
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
 private fun labelStyle() = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Bold, color = GlanceTheme.colors.onSurfaceVariant)
 
 @androidx.glance.GlanceComposable
@@ -347,3 +388,11 @@ class RefreshWidgetAction : ActionCallback {
         DashboardWidget().update(context, glanceId)
     }
 }
+
+internal object TodoToggleParameters {
+    val todoId = ActionParameters.Key<String>("todoId")
+    val targetDoneOn = ActionParameters.Key<String>("targetDoneOn")
+    val tappedDate = ActionParameters.Key<String>("tappedDate")
+}
+
+internal const val CLEAR_DONE_TARGET = "__clear__"

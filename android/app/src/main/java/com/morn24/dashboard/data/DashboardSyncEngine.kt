@@ -18,6 +18,7 @@ data class DashboardSnapshot(
     val connectionState: WidgetConnectionState,
     val webUrl: String,
     val todos: List<Todo> = emptyList(),
+    val pendingTodoIds: Set<String> = emptySet(),
     val projects: List<Project> = emptyList(),
     val calendarEvents: List<CalendarEvent> = emptyList(),
     val calendarAvailable: Boolean = false,
@@ -33,6 +34,20 @@ class DashboardSyncEngine(
     private val clock: Clock = Clock.systemDefaultZone(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
+    /** Fast, network-free render path for Glance actions and offline launches. */
+    suspend fun loadCached(): DashboardSnapshot = withContext(ioDispatcher) {
+        val settings = store.settings()
+        val generation = store.generation()
+        val encryptedToken = settings.encryptedToken
+            ?: return@withContext DashboardSnapshot(WidgetConnectionState.NEEDS_SETUP, settings.webUrl)
+        try {
+            tokenCipher.decrypt(encryptedToken)
+        } catch (_: Exception) {
+            return@withContext DashboardSnapshot(WidgetConnectionState.REAUTHENTICATE, settings.webUrl)
+        }
+        cachedSnapshot(settings, generation, emptyList())
+    }
+
     suspend fun load(): DashboardSnapshot = withContext(ioDispatcher) {
         val settings = store.settings()
         val generation = store.generation()
@@ -79,10 +94,12 @@ class DashboardSyncEngine(
             return@withContext cachedSnapshot(store.settings(), store.generation(), listOf("설정이 바뀌었어요. 새로고침해 주세요."))
         }
         val timestamps = DashboardFile.entries.mapNotNull { store.cached(it).lastSuccessAtMillis }
+        val (displayTodos, pendingTodoIds) = overlayPendingTodos(todos.value, generation)
         DashboardSnapshot(
             connectionState = WidgetConnectionState.READY,
             webUrl = settings.webUrl,
-            todos = todos.value,
+            todos = displayTodos,
+            pendingTodoIds = pendingTodoIds,
             projects = projects.value,
             calendarEvents = calendar.value,
             calendarAvailable = calendar.available,
@@ -150,16 +167,26 @@ class DashboardSyncEngine(
         val projectCache = cached(DashboardFile.PROJECTS, emptyList<Project>(), DashboardDisplayData::projects)
         val calendarCache = cached(DashboardFile.CALENDAR, emptyList<CalendarEvent>(), DashboardDisplayData::events)
         val timestamps = DashboardFile.entries.mapNotNull { store.cached(it).lastSuccessAtMillis }
+        val (displayTodos, pendingTodoIds) = overlayPendingTodos(todoCache.first, generation)
         return DashboardSnapshot(
             connectionState = WidgetConnectionState.READY,
             webUrl = settings.webUrl,
-            todos = todoCache.first,
+            todos = displayTodos,
+            pendingTodoIds = pendingTodoIds,
             projects = projectCache.first,
             calendarEvents = calendarCache.first,
             calendarAvailable = calendarCache.second,
             lastUpdatedAtMillis = timestamps.maxOrNull(),
             errors = errors.distinct(),
         )
+    }
+
+    private suspend fun overlayPendingTodos(todos: List<Todo>, generation: Long): Pair<List<Todo>, Set<String>> {
+        val pending = store.pendingToggles().filter { it.expectedGeneration == generation }.associateBy(PendingTodoToggle::todoId)
+        if (pending.isEmpty()) return todos to emptySet()
+        return todos.map { todo ->
+            pending[todo.id]?.let { todo.copy(doneOn = it.targetDoneOn) } ?: todo
+        } to pending.keys
     }
 
     private fun safeError(error: Exception): String = when (error) {

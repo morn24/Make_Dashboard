@@ -1,5 +1,7 @@
 package com.morn24.dashboard.data
 
+import kotlinx.serialization.Serializable
+
 data class EncryptedToken(
     val ivBase64: String,
     val ciphertextBase64: String,
@@ -33,4 +35,14 @@ data class CachedJsonFile(
     val sha: String?,
     val lastSuccessAtMillis: Long?,
     val error: String?,
+)
+
+@Serializable
+data class PendingTodoToggle(
+    val operationId: String,
+    val todoId: String,
+    val targetDoneOn: String?,
+    val tappedDate: String,
+    val expectedGeneration: Long,
+    val createdAtMillis: Long,
 )
