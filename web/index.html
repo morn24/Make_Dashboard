@@ -29,6 +29,20 @@
   </div>
 
   <main>
+    <section class="card" id="cal-card" aria-labelledby="cal-title" hidden>
+      <div class="section-head">
+        <h2 id="cal-title">오늘 일정</h2>
+        <span class="count" id="cal-count"></span>
+      </div>
+      <ul class="events" id="cal-list"></ul>
+      <p class="empty" id="cal-empty" hidden>오늘은 일정이 없어요.</p>
+      <p class="empty" id="cal-setup" hidden>
+        Google 캘린더가 아직 연결되지 않았어요.
+        <a href="https://github.com/morn24/Make_Dashboard/blob/main/docs/google-calendar-setup.md" target="_blank" rel="noopener">연결 방법 보기</a>
+      </p>
+      <p class="tomorrow" id="cal-tomorrow"></p>
+    </section>
+
     <section class="card" aria-labelledby="todo-title">
       <div class="section-head">
         <h2 id="todo-title">오늘 할 일</h2>

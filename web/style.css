@@ -177,6 +177,20 @@ dialog label input {
   background: none; border: 1px solid var(--line); padding: 10px 14px; border-radius: 10px;
 }
 .grow { flex: 1; }
+
+.events { list-style: none; margin: 8px 0 0; padding: 0; }
+.event { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; }
+.ev-time { flex: none; width: 92px; font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.event .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); transform: translateY(-1px); }
+.ev-body { min-width: 0; display: flex; flex-direction: column; }
+.ev-title { overflow-wrap: anywhere; }
+.ev-loc { font-size: .78rem; color: var(--muted); overflow-wrap: anywhere; }
+.event.past { opacity: .5; }
+.event.now .ev-title { font-weight: 700; }
+.event.now .ev-time { color: var(--accent); font-weight: 600; }
+.tomorrow { color: var(--muted); font-size: .8rem; margin: 8px 0 0; }
+.tomorrow:empty { display: none; }
+#cal-setup a { color: var(--accent); }
 .menu-list { display: grid; gap: 8px; margin-top: 12px; }
 .menu-list button {
   text-align: left; padding: 12px 14px; border-radius: 10px;

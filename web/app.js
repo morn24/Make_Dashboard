@@ -1,10 +1,12 @@
 'use strict';
 
 // 데이터 형식은 docs/data-format.md 참고
-const FILES = { todos: 'data/todos.json', projects: 'data/projects.json' };
+const FILES = { todos: 'data/todos.json', projects: 'data/projects.json', calendar: 'data/calendar.json' };
 const EMPTY = {
   todos: () => ({ version: 1, updatedAt: null, items: [] }),
   projects: () => ({ version: 1, updatedAt: null, projects: [] }),
+  // 캘린더 파일은 Google Apps Script가 만든다. 아직 없으면 missing=true (연결 안내 표시)
+  calendar: () => ({ version: 1, updatedAt: null, events: [], missing: true }),
 };
 const CFG_KEY = 'dash.cfg';
 const CACHE_KEY = 'dash.cache';
@@ -16,6 +18,7 @@ const STALE_GUARD_MS = 90_000;
 const state = {
   todos: EMPTY.todos(),
   projects: EMPTY.projects(),
+  calendar: EMPTY.calendar(),
   demo: false,
   lastWrite: {}, // file -> { oldSha, at }
   openGroups: { paused: false, done: false }, // 홀드/완료 묶음 펼침 상태 (다시 그려도 유지)
@@ -156,20 +159,22 @@ async function refresh({ quiet = false } = {}) {
   setBusy(+1);
   try {
     if (state.demo) {
-      const [t, p] = await Promise.all(
-        ['todos', 'projects'].map((f) => fetch(`demo/${f}.json`, { cache: 'no-store' }).then((r) => r.json())),
+      const [t, p, c] = await Promise.all(
+        ['todos', 'projects', 'calendar'].map((f) => fetch(`demo/${f}.json`, { cache: 'no-store' }).then((r) => r.json())),
       );
       state.todos = t;
       state.projects = p;
+      state.calendar = demoCalendar(c);
       setSync('데모 데이터');
     } else {
-      const [t, p] = await Promise.all([readFile(cfg, 'todos'), readFile(cfg, 'projects')]);
+      const [t, p, c] = await Promise.all([readFile(cfg, 'todos'), readFile(cfg, 'projects'), readFile(cfg, 'calendar')]);
+      state.calendar = c.data;
       for (const [file, got] of [['todos', t], ['projects', p]]) {
         const w = state.lastWrite[file];
         const stale = w && Date.now() - w.at < STALE_GUARD_MS && got.sha === w.oldSha;
         if (!stale) state[file] = got.data;
       }
-      save(CACHE_KEY, { todos: state.todos, projects: state.projects, at: Date.now() });
+      save(CACHE_KEY, { todos: state.todos, projects: state.projects, calendar: state.calendar, at: Date.now() });
       setSync(`동기화됨 · ${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`);
     }
   } catch (e) {
@@ -280,6 +285,7 @@ function render() {
   const today = localDate();
   const now = new Date();
   $('today').textContent = now.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
+  renderCalendar(today, now);
 
   // 할 일
   const all = state.todos.items || [];
@@ -371,6 +377,61 @@ function renderProject(p) {
   return card;
 }
 
+// ---------- 오늘 일정 (Google 캘린더 → data/calendar.json) ----------
+
+function addDays(dateStr, n) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return localDate(new Date(y, m - 1, d + n));
+}
+
+// 종일 일정: start <= 오늘 < end (end는 다음 날, 미포함). 시간 일정: 오늘 0시~24시와 겹치면 오늘 일정.
+function eventsOn(day) {
+  const dayStart = new Date(`${day}T00:00:00`);
+  const dayEnd = new Date(`${addDays(day, 1)}T00:00:00`);
+  return (state.calendar.events || [])
+    .filter((e) => (e.allDay
+      ? e.start <= day && day < (e.end || addDays(e.start, 1))
+      : new Date(e.start) < dayEnd && new Date(e.end || e.start) > dayStart))
+    .sort((a, b) => (b.allDay - a.allDay) || String(a.start).localeCompare(String(b.start)));
+}
+
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function renderCalendar(today, now) {
+  const card = $('cal-card');
+  const missing = state.calendar.missing && !state.demo;
+  $('cal-setup').hidden = !missing;
+  const events = missing ? [] : eventsOn(today);
+  $('cal-count').textContent = events.length ? `${events.length}개` : '';
+  $('cal-empty').hidden = missing || events.length > 0;
+  const tomorrow = missing ? [] : eventsOn(addDays(today, 1));
+  $('cal-tomorrow').textContent = tomorrow.length
+    ? `내일 ${tomorrow.length}개 · ${tomorrow.slice(0, 2).map((e) => (e.allDay ? '' : `${fmtTime(e.start)} `) + e.title).join(', ')}${tomorrow.length > 2 ? ' …' : ''}`
+    : '';
+  card.hidden = false;
+  $('cal-list').replaceChildren(...events.map((e) => {
+    const past = !e.allDay && new Date(e.end || e.start) <= now;
+    const ongoing = !e.allDay && new Date(e.start) <= now && now < new Date(e.end || e.start);
+    const when = e.allDay ? '종일' : `${fmtTime(e.start)}${e.end ? `–${fmtTime(e.end)}` : ''}`;
+    const li = el('li', { class: `event${past ? ' past' : ''}${ongoing ? ' now' : ''}` });
+    const dot = el('span', { class: 'dot', title: e.calendar || '' });
+    if (e.color) dot.style.background = e.color;
+    const body = el('div', { class: 'ev-body' }, el('span', { class: 'ev-title' }, e.title || '(제목 없음)'));
+    if (e.location) body.append(el('span', { class: 'ev-loc' }, e.location));
+    li.append(el('span', { class: 'ev-time' }, when), dot, body);
+    return li;
+  }));
+}
+
+// 데모 파일의 일정 날짜를 오늘/내일로 옮긴다
+function demoCalendar(c) {
+  const today = localDate();
+  const shift = (v) => v && v.replace('2000-01-01', today).replace('2000-01-02', addDays(today, 1));
+  return { ...c, events: c.events.map((e) => ({ ...e, start: shift(e.start), end: shift(e.end) })) };
+}
+
 // ---------- 프로젝트 상태 변경 (진행 중 / 홀드 / 완료 / 삭제) ----------
 
 let menuProjectId = null;
@@ -459,6 +520,7 @@ function init() {
   if (cached && getCfg()) {
     state.todos = cached.todos || state.todos;
     state.projects = cached.projects || state.projects;
+    state.calendar = cached.calendar || state.calendar;
   }
   render();
 

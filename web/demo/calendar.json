@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "updatedAt": "2026-10-29T09:00:00+09:00",
+  "timeZone": "Asia/Seoul",
+  "events": [
+    { "id": "demo1", "calendar": "대한민국의 휴일", "color": "#16a765", "title": "종일 일정 예시", "allDay": true, "start": "2000-01-01", "end": "2000-01-02" },
+    { "id": "demo2", "calendar": "내 캘린더", "color": "#4986e7", "title": "팀 회의", "allDay": false, "start": "2000-01-01T10:00:00+09:00", "end": "2000-01-01T11:00:00+09:00", "location": "회의실 A" },
+    { "id": "demo3", "calendar": "내 캘린더", "color": "#4986e7", "title": "운동", "allDay": false, "start": "2000-01-01T19:00:00+09:00", "end": "2000-01-01T20:00:00+09:00" },
+    { "id": "demo4", "calendar": "내 캘린더", "color": "#4986e7", "title": "치과 예약", "allDay": false, "start": "2000-01-02T14:00:00+09:00", "end": "2000-01-02T15:00:00+09:00" }
+  ]
+}

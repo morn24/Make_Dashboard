@@ -8,6 +8,8 @@
 - `docs/instructions/`: 로컬 PC에서 AI에게 맡길 **수행지시문**
   - `01-pc-update.md`: PC 자동 업데이트 스크립트
   - `02-android-widget.md`: 안드로이드 홈 화면 위젯
+- `docs/google-calendar-setup.md`: Google 캘린더 오늘 일정 연결 (Apps Script, 약 10분)
+- `integrations/google-calendar/`: 캘린더 동기화 Apps Script 코드
 
 ## 처음 설정 (한 번만, 약 10분)
 
