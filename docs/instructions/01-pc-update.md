@@ -30,7 +30,7 @@
 ```bash
 # 프로젝트 갱신 (없으면 새로 만든다). 준 값만 바꾸고 나머지는 그대로 둔다.
 python scripts/dash_update.py set \
-  --id make-dashboard            # 생략하면 현재 폴더의 git 최상위 폴더 이름 → 소문자-하이픈
+  --id make-dashboard            # 생략하면 git 최상위 폴더 이름, git 저장소가 아니면 현재 폴더 이름 → 소문자-하이픈
   --name "Make_Dashboard"        # 새로 만들 때 생략하면 폴더 이름
   --tool claude-code             # claude-code | codex | other
   --status active                # active | paused | done
@@ -79,11 +79,13 @@ Codex는 기본 샌드박스에서 **네트워크가 막혀 있을 수 있다.**
 
 1. Fine-grained 토큰 만들기: GitHub → Settings → Developer settings → Fine-grained tokens → Only select repositories: `dashboard-data` → Contents: Read and write → 만료일 설정
 2. 토큰 저장: `~/.dashboard/token` 파일 (Windows: `%USERPROFILE%\.dashboard\token`)
-3. 스크립트 위치 고정: 이 저장소 경로 그대로 쓰거나 `~/.dashboard/dash_update.py`로 복사 (규칙 문구의 경로와 맞춘다)
+3. 스크립트 설치: `~/.dashboard/dash_update.py`로 **한 번만** 복사한다 (규칙 문구도 이 경로를 쓴다). 각 프로젝트 폴더에는 아무것도 설치하거나 clone하지 않는다. 이 저장소를 업데이트하면 다시 복사하라고 안내한다
 4. 동작 확인: `python dash_update.py show`
 5. 전역 규칙 붙여넣기
 
 ## 제약
+
+- 각 프로젝트 폴더에 파일을 추가하거나 무언가를 clone하게 만들지 않는다. 도구는 `~/.dashboard/` 한 곳, 규칙은 전역 규칙 파일 한 곳에만 둔다.
 
 - 토큰을 코드, 저장소, 로그에 절대 남기지 않는다. 오류 메시지에 출력하지 않는다.
 - `web/`의 동작이나 `docs/data-format.md` 형식을 바꾸지 않는다. 형식 변경이 꼭 필요하면 멈추고 사용자에게 묻는다.
