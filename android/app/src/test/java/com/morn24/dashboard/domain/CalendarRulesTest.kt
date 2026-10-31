@@ -4,6 +4,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -99,6 +100,33 @@ class CalendarRulesTest {
     fun nextTimedIsNullWhenOnlyTomorrowHasAnEvent() {
         val tomorrow = timed("tomorrow", "2026-11-01T08:00:00+09:00", "2026-11-01T09:00:00+09:00")
         assertNull(CalendarRules.nextTimed(listOf(tomorrow), today, zone, Instant.parse("2026-10-31T00:00:00Z")))
+    }
+
+    @Test
+    fun nextRenderBoundaryUsesStrictlyFutureEventStartAndEndThenLocalMidnight() {
+        val events = listOf(
+            timed("finished", "2026-10-31T08:00:00+09:00", "2026-10-31T09:00:00+09:00"),
+            timed("next", "2026-10-31T10:00:00+09:00", "2026-10-31T11:00:00+09:00"),
+            allDay("all-day", "2026-10-31", "2026-11-01"),
+        )
+        val beforeStart = ZonedDateTime.parse("2026-10-31T09:00:00+09:00[Asia/Seoul]")
+        val atStart = ZonedDateTime.parse("2026-10-31T10:00:00+09:00[Asia/Seoul]")
+        val afterEvents = ZonedDateTime.parse("2026-10-31T23:00:00+09:00[Asia/Seoul]")
+
+        assertEquals(Instant.parse("2026-10-31T01:00:00Z"), CalendarBoundaryRules.nextRenderBoundary(events, beforeStart))
+        assertEquals(Instant.parse("2026-10-31T02:00:00Z"), CalendarBoundaryRules.nextRenderBoundary(events, atStart))
+        assertEquals(Instant.parse("2026-10-31T15:00:00Z"), CalendarBoundaryRules.nextRenderBoundary(events, afterEvents))
+    }
+
+    @Test
+    fun nextBoundaryUsesRealLocalMidnightAcrossDaylightSavingChange() {
+        val newYork = ZoneId.of("America/New_York")
+        val now = ZonedDateTime.parse("2026-03-08T12:00:00-04:00[America/New_York]")
+
+        assertEquals(
+            LocalDate.parse("2026-03-09").atStartOfDay(newYork).toInstant(),
+            CalendarBoundaryRules.nextRenderBoundary(emptyList(), now),
+        )
     }
 
     private fun ids(items: List<CalendarOccurrence>) = items.map { it.event.id }

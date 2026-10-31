@@ -1,8 +1,11 @@
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:minWidth="140dp"
     android:minHeight="140dp"
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="0"
     android:widgetCategory="home_screen"
     android:description="@string/widget_description"
-    android:previewImage="@drawable/ic_dashboard" />
+    android:previewImage="@drawable/widget_preview"
+    android:previewLayout="@layout/dashboard_widget_preview"
+    tools:targetApi="31" />

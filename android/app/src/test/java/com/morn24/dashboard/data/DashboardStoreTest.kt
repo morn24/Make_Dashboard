@@ -229,6 +229,24 @@ class DashboardStoreTest {
         assertEquals(100L, store.cached(DashboardFile.TODOS).lastSuccessAtMillis)
     }
 
+    @Test
+    fun syncLifecycleMarksInProgressAndOnlyAdvancesLastCompleteOnSuccess() = runBlocking {
+        val generation = store.saveSettings(DashboardSettings(encryptedToken = EncryptedToken("iv", "cipher")))
+        store.recordSyncStartedIfGeneration(100L, generation)
+        assertTrue(store.syncInProgress())
+
+        store.recordSyncResultIfGeneration(200L, hadErrors = true, expectedGeneration = generation)
+        assertFalse(store.syncInProgress())
+        assertTrue(store.lastSyncHadErrors())
+        assertNull(store.lastCompleteSyncAtMillis())
+
+        store.recordSyncStartedIfGeneration(300L, generation)
+        store.recordSyncResultIfGeneration(400L, hadErrors = false, expectedGeneration = generation)
+        assertFalse(store.syncInProgress())
+        assertFalse(store.lastSyncHadErrors())
+        assertEquals(400L, store.lastCompleteSyncAtMillis())
+    }
+
     private fun ByteArray.containsBytes(needle: ByteArray): Boolean =
         needle.isNotEmpty() && indices.any { start ->
             start + needle.size <= size && needle.indices.all { offset -> this[start + offset] == needle[offset] }

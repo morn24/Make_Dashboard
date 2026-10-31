@@ -88,7 +88,7 @@ class DashboardSyncEngineTest {
         assertEquals("old-sha", store.cached(DashboardFile.TODOS).sha)
         assertEquals(1_234L, store.cached(DashboardFile.TODOS).lastSuccessAtMillis)
         assertTrue(store.cached(DashboardFile.TODOS).error.orEmpty().contains("네트워크"))
-        assertTrue(snapshot.errors.single().contains("이전 데이터를 표시합니다"))
+        assertTrue(snapshot.errors.any { it.contains("이전 데이터를 표시합니다") })
     }
 
     @Test
@@ -100,7 +100,13 @@ class DashboardSyncEngineTest {
         assertTrue(snapshot.projects.isEmpty())
         assertTrue(snapshot.calendarEvents.isEmpty())
         assertFalse(snapshot.calendarAvailable)
-        assertTrue(snapshot.errors.isEmpty())
+        assertEquals(2, snapshot.errors.size)
+        assertTrue(snapshot.errors.any { it.contains(DashboardFile.TODOS.path) })
+        assertTrue(snapshot.errors.any { it.contains(DashboardFile.PROJECTS.path) })
+        assertNull(snapshot.lastCompleteSyncAtMillis)
+        val cachedSnapshot = engine(repositoryFactory()).loadCached()
+        assertTrue(cachedSnapshot.errors.any { it.contains(DashboardFile.TODOS.path) })
+        assertNull(cachedSnapshot.lastCompleteSyncAtMillis)
     }
 
     @Test
@@ -120,7 +126,7 @@ class DashboardSyncEngineTest {
         assertEquals(oldJson, store.cached(DashboardFile.TODOS).rawJson)
         assertEquals("old-sha", store.cached(DashboardFile.TODOS).sha)
         assertEquals(2_000L, store.cached(DashboardFile.TODOS).lastSuccessAtMillis)
-        assertTrue(snapshot.errors.single().contains("데이터 형식"))
+        assertTrue(snapshot.errors.any { it.contains("데이터 형식") })
     }
 
     @Test

@@ -5,10 +5,14 @@ import java.io.File
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
+import java.time.LocalDate
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
@@ -178,6 +182,62 @@ class ToggleTodoProcessorTest {
         assertEquals(undo, store.completedUndo())
         assertNull(store.pendingToggle(undo.todoId))
         assertTrue(store.cached(DashboardFile.TODOS).error.orEmpty().contains("다른 기기"))
+    }
+
+    @Test
+    fun tenWidgetTapsAreVisibleBeforeThreeAndAHalfSecondRemoteResponses() = runBlocking {
+        val today = LocalDate.now(ZoneId.systemDefault()).toString()
+        settings = DashboardSettings(encryptedToken = cipher.encrypt("slow-server-test-token"))
+        val generation = store.saveSettings(settings)
+        val items = (1..10).joinToString(",") { index ->
+            """{"id":"todo-$index","title":"지연 검증 $index","repeat":"daily","doneOn":null}"""
+        }
+        store.saveSuccessfulFile(DashboardFile.TODOS, """{"version":1,"items":[$items]}""", "slow-sha", 1_000L)
+        val remoteStarted = CountDownLatch(1)
+        val slowFactory = DashboardRepositoryFactory { _, _, _, _ ->
+            object : DashboardRepository {
+                override fun read(file: DashboardFile): RemoteRead = error("unused")
+                override fun updateTodo(todoId: String, targetDoneOn: String?): MutationResult {
+                    remoteStarted.countDown()
+                    Thread.sleep(3_500L)
+                    throw java.io.IOException("simulated delayed server")
+                }
+            }
+        }
+
+        val tapStartedAt = System.nanoTime()
+        val pendingActions = (1..10).map { index ->
+            val pending = PendingTodoToggle(
+                operationId = "slow-operation-$index",
+                todoId = "todo-$index",
+                targetDoneOn = today,
+                tappedDate = today,
+                expectedGeneration = generation,
+                createdAtMillis = 2_000L + index,
+                title = "지연 검증 $index",
+            )
+            assertTrue(store.enqueuePendingToggle(pending))
+            pending
+        }
+        val slowRequest = async(Dispatchers.IO) {
+            val pending = pendingActions.first()
+            ToggleTodoProcessor(store, slowFactory, cipher).process(pending.todoId, pending.operationId)
+        }
+
+        val optimistic = DashboardSyncEngine(
+            store = store,
+            repositoryFactory = slowFactory,
+            tokenCipher = cipher,
+            ioDispatcher = Dispatchers.IO,
+        ).loadCached()
+        val responseMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - tapStartedAt)
+        assertTrue("optimistic screen response was ${responseMillis}ms", responseMillis < 3_000L)
+        assertEquals(10, optimistic.pendingTodoIds.size)
+        assertTrue(optimistic.todos.all { it.doneOn == today })
+        assertTrue("a delayed request should be in flight", remoteStarted.await(1, TimeUnit.SECONDS))
+
+        assertTrue(slowRequest.await() is ToggleTodoResult.Failed)
+        assertEquals(9, store.pendingToggles().size)
     }
 
     private suspend fun preparePending(targetDoneOn: String?): PendingTodoToggle {

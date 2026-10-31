@@ -4,6 +4,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 
 data class CalendarOccurrence(
     val event: CalendarEvent,
@@ -82,5 +83,22 @@ object CalendarRules {
     private fun parseDate(value: String): LocalDate? = runCatching { LocalDate.parse(value) }.getOrNull()
 
     private fun parseInstant(value: String): Instant? =
+        runCatching { OffsetDateTime.parse(value).toInstant() }.getOrNull()
+}
+
+/** The next local render change for calendar labels, event state, or today's boundary. */
+object CalendarBoundaryRules {
+    fun nextRenderBoundary(events: List<CalendarEvent>, now: ZonedDateTime): Instant {
+        val nowInstant = now.toInstant()
+        val midnight = now.toLocalDate().plusDays(1).atStartOfDay(now.zone).toInstant()
+        val eventBoundaries = events.asSequence()
+            .filterNot(CalendarEvent::allDay)
+            .flatMap { event -> sequenceOf(parseEventInstant(event.start), parseEventInstant(event.end)) }
+            .filterNotNull()
+            .filter { it.isAfter(nowInstant) && it.isBefore(midnight) }
+        return (eventBoundaries + sequenceOf(midnight)).minOrNull() ?: midnight
+    }
+
+    private fun parseEventInstant(value: String): Instant? =
         runCatching { OffsetDateTime.parse(value).toInstant() }.getOrNull()
 }

@@ -4,6 +4,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import androidx.glance.appwidget.updateAll
+import com.morn24.dashboard.data.AndroidKeystoreAesKeyProvider
+import com.morn24.dashboard.data.DashboardStore
+import com.morn24.dashboard.data.DashboardSyncEngine
+import com.morn24.dashboard.data.DefaultDashboardRepositoryFactory
+import com.morn24.dashboard.data.TokenCipher
 import com.morn24.dashboard.widget.DashboardWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,7 +22,12 @@ class DashboardSystemReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                DashboardWorkScheduler.onSystemTimeChanged(context)
+                val snapshot = DashboardSyncEngine(
+                    store = DashboardStore.from(context),
+                    repositoryFactory = DefaultDashboardRepositoryFactory(),
+                    tokenCipher = TokenCipher(AndroidKeystoreAesKeyProvider()),
+                ).loadCached()
+                DashboardWorkScheduler.onSystemTimeChanged(context, snapshot.calendarEvents)
                 DashboardWidget().updateAll(context)
             } finally {
                 pendingResult.finish()

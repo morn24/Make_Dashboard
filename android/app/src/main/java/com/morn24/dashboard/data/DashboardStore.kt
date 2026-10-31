@@ -138,6 +138,9 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
                 ?.takeIf { it.generation == generation }
             val timestamps = statuses.mapNotNull(FileSyncStatus::lastSuccessAtMillis)
             val fileErrors = statuses.mapNotNull(FileSyncStatus::error)
+            val missingRequiredFiles = statuses.filter {
+                it.notFoundAtMillis != null && it.file != DashboardFile.CALENDAR
+            }.map { "${it.file.path} 파일을 찾지 못했어요." }
             DashboardSnapshot(
                 connectionState = connectionState,
                 webUrl = preferences[SettingsKeys.webUrl] ?: DashboardSettings.DEFAULT_WEB_URL,
@@ -150,11 +153,12 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
                 lastUpdatedAtMillis = timestamps.maxOrNull(),
                 lastCompleteSyncAtMillis = preferences[LAST_COMPLETE_SYNC_KEY],
                 lastSyncHadErrors = preferences[LAST_SYNC_ERROR_KEY] ?: false,
+                syncInProgress = preferences[SYNC_IN_PROGRESS_KEY] ?: false,
                 fileStatuses = statuses,
                 undo = undo,
                 pendingUndoTodoId = pending.values.firstOrNull { it.undoRecordId != null }?.todoId,
                 appearance = appearance,
-                errors = (fileErrors + parseErrors + initial.errors.filterNot { it in fileErrors }).distinct(),
+                errors = (fileErrors + missingRequiredFiles + parseErrors + initial.errors.filterNot { it in fileErrors }).distinct(),
             )
         }
 
@@ -182,11 +186,21 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
 
     suspend fun lastCompleteSyncAtMillis(): Long? = dataStore.data.first()[LAST_COMPLETE_SYNC_KEY]
     suspend fun lastSyncHadErrors(): Boolean = dataStore.data.first()[LAST_SYNC_ERROR_KEY] ?: false
+    suspend fun syncInProgress(): Boolean = dataStore.data.first()[SYNC_IN_PROGRESS_KEY] ?: false
+
+    suspend fun recordSyncStartedIfGeneration(atMillis: Long, expectedGeneration: Long) {
+        dataStore.edit { preferences ->
+            if ((preferences[SettingsKeys.generation] ?: 0L) != expectedGeneration) return@edit
+            preferences[SYNC_IN_PROGRESS_KEY] = true
+            preferences[SYNC_STARTED_KEY] = atMillis
+        }
+    }
 
     suspend fun recordSyncResultIfGeneration(atMillis: Long, hadErrors: Boolean, expectedGeneration: Long) {
         dataStore.edit { preferences ->
             if ((preferences[SettingsKeys.generation] ?: 0L) != expectedGeneration) return@edit
             preferences[LAST_SYNC_ERROR_KEY] = hadErrors
+            preferences[SYNC_IN_PROGRESS_KEY] = false
             if (!hadErrors) preferences[LAST_COMPLETE_SYNC_KEY] = atMillis
         }
     }
@@ -401,6 +415,8 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
         clearTodoStaleShaGuard(preferences)
         preferences.remove(LAST_COMPLETE_SYNC_KEY)
         preferences.remove(LAST_SYNC_ERROR_KEY)
+        preferences.remove(SYNC_IN_PROGRESS_KEY)
+        preferences.remove(SYNC_STARTED_KEY)
         clearPendingAndUndo(preferences)
     }
 
@@ -437,6 +453,8 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
         private val DEFAULT_APPEARANCE_KEY = stringPreferencesKey("widget_appearance_default")
         private val LAST_COMPLETE_SYNC_KEY = longPreferencesKey("sync_last_complete")
         private val LAST_SYNC_ERROR_KEY = booleanPreferencesKey("sync_last_had_errors")
+        private val SYNC_IN_PROGRESS_KEY = booleanPreferencesKey("sync_in_progress")
+        private val SYNC_STARTED_KEY = longPreferencesKey("sync_started")
         private val UNDO_KEY = stringPreferencesKey("todo_completed_undo")
         private val pendingJson = Json { ignoreUnknownKeys = true }
 

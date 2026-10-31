@@ -1,14 +1,17 @@
+@file:Suppress("RestrictedApi", "ResourceType")
+
 package com.morn24.dashboard.widget
 
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
-import android.net.Uri
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.toColorInt
+import androidx.core.net.toUri
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.LocalContext
@@ -84,7 +87,7 @@ object WidgetLayoutPlanner {
         val largeText = fontScalePercent >= 130
         return when {
             small -> WidgetLayoutPlan(true, false, 1, 0, 0)
-            medium -> WidgetLayoutPlan(false, true, if (largeText) 0 else 1, 0, 1)
+            medium -> WidgetLayoutPlan(false, true, 1, 0, if (largeText) 0 else 1)
             else -> WidgetLayoutPlan(false, false, if (largeText) 2 else 3, if (largeText) 3 else 5, if (largeText) 2 else 4)
         }
     }
@@ -113,7 +116,7 @@ class DashboardWidget : GlanceAppWidget() {
             val snapshot by snapshotFlow.collectAsState(initial)
             val size = LocalSize.current
             val context = LocalContext.current
-            val webAction = actionStartActivity(Intent(Intent.ACTION_VIEW, Uri.parse(snapshot.webUrl)))
+            val webAction = actionStartActivity(Intent(Intent.ACTION_VIEW, snapshot.webUrl.toUri()))
             val plan = WidgetLayoutPlanner.plan(size, snapshot.appearance.fontScalePercent)
             androidx.glance.GlanceTheme(colors = appearanceColors(snapshot.appearance)) {
                 WidgetContent(snapshot, plan, webAction, widgetId)
@@ -155,7 +158,7 @@ private fun WidgetContent(
     LazyColumn(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(ColorProvider(backgroundArgb(appearance)))
+            .background(glanceColor(backgroundArgb(appearance)))
             .clickable(webAction)
             .padding(margin),
     ) {
@@ -178,22 +181,51 @@ private fun WidgetContent(
             }
 
             if (plan.small || plan.medium) {
-                item(itemId = stableId("next-event")) { NextEventSummary(snapshot, nextTimed, today, zone, appearance) }
-                if (plan.medium) {
-                    item(itemId = stableId("all-day")) {
-                        val allDayCount = allTodayEvents.count(CalendarOccurrence::allDay)
-                        if (allDayCount > 0) Text("종일 일정 ${allDayCount}개", style = bodyStyle(appearance, 11, variant = true))
+                val compactLargeText = plan.medium && appearance.fontScalePercent >= 130
+                if (!compactLargeText) {
+                    item(itemId = stableId("next-event")) { NextEventSummary(snapshot, nextTimed, today, zone, appearance) }
+                }
+                if (plan.small) {
+                    item(itemId = stableId("small-todo-label")) {
+                        SectionLabel("오늘 할 일 ${todoSummary.doneCount}/${todoSummary.visibleCount}", appearance)
                     }
-                    item(itemId = stableId("top-project")) {
-                        if (activeProjects.isEmpty()) {
-                            Text("진행 중 프로젝트 없음", style = bodyStyle(appearance, 11))
-                        } else {
-                            val project = activeProjects.first()
-                            Text("${project.name} · 다음 · ${ProjectRules.nextTask(project) ?: "다음 과제 없음"}", maxLines = 2, style = bodyStyle(appearance, 11))
+                    if (actionableTodos.isEmpty()) {
+                        item(itemId = stableId("small-todo-empty")) {
+                            Text(
+                                if (todoSummary.visibleCount == 0) "등록된 할 일이 없어요" else "오늘 할 일을 모두 마쳤어요",
+                                style = bodyStyle(appearance, 10),
+                            )
+                        }
+                    } else {
+                        items(shownTodos, itemId = { stableId("todo:${it.id}") }) { todo ->
+                            TodoToggleRow(todo, todayText, snapshot.pendingTodoIds, appearance)
+                        }
+                    }
+                    if (hiddenTodos > 0) item(itemId = stableId("small-todo-more")) {
+                        MoreAction("할 일 +${hiddenTodos}개 · 전체 보기", webAction, appearance)
+                    }
+                }
+                if (plan.medium) {
+                    if (!compactLargeText) {
+                        item(itemId = stableId("all-day")) {
+                            val allDayCount = allTodayEvents.count(CalendarOccurrence::allDay)
+                            if (allDayCount > 0) Text("종일 일정 ${allDayCount}개", style = bodyStyle(appearance, 11, variant = true))
+                        }
+                    }
+                    if (plan.projectRows > 0) {
+                        item(itemId = stableId("top-project")) {
+                            if (activeProjects.isEmpty()) {
+                                Text("진행 중 프로젝트 없음", style = bodyStyle(appearance, 11))
+                            } else {
+                                val project = activeProjects.first()
+                                Text("${project.name} · 다음 · ${ProjectRules.nextTask(project) ?: "다음 과제 없음"}", maxLines = 2, style = bodyStyle(appearance, 11))
+                            }
                         }
                     }
                     if (actionableTodos.isNotEmpty()) {
-                        item(itemId = stableId("medium-todo-label")) { SectionLabel("할 일 ${shownTodos.size}/${actionableTodos.size}", appearance) }
+                        if (!compactLargeText) {
+                            item(itemId = stableId("medium-todo-label")) { SectionLabel("할 일 ${shownTodos.size}/${actionableTodos.size}", appearance) }
+                        }
                         items(shownTodos, itemId = { stableId("todo:${it.id}") }) { todo ->
                             TodoToggleRow(todo, todayText, snapshot.pendingTodoIds, appearance)
                         }
@@ -277,7 +309,11 @@ private fun Header(snapshot: DashboardSnapshot, today: LocalDate, small: Boolean
             Text(
                 today.format(DateTimeFormatter.ofPattern("M월 d일 (E)", Locale.KOREAN)),
                 maxLines = 1,
-                style = TextStyle(fontSize = (if (small) 14 else 15).scaledSp(appearance), fontWeight = FontWeight.Bold),
+                style = TextStyle(
+                    fontSize = (if (small) 14 else 15).scaledSp(appearance),
+                    fontWeight = FontWeight.Bold,
+                    color = primaryTextColor(appearance),
+                ),
             )
             Text(syncLabel(snapshot), maxLines = 1, style = bodyStyle(appearance, 9, variant = true))
         }
@@ -287,7 +323,7 @@ private fun Header(snapshot: DashboardSnapshot, today: LocalDate, small: Boolean
                 .semantics { contentDescription = "새로고침, 데이터를 다시 불러옵니다" },
             contentAlignment = Alignment.Center,
         ) {
-            Text("↻", style = TextStyle(fontSize = 22.scaledSp(appearance), fontWeight = FontWeight.Bold))
+            Text("↻", style = TextStyle(fontSize = 22.scaledSp(appearance), fontWeight = FontWeight.Bold, color = primaryTextColor(appearance)))
         }
         if (!small && snapshot.connectionState == WidgetConnectionState.READY) {
             Box(
@@ -296,7 +332,7 @@ private fun Header(snapshot: DashboardSnapshot, today: LocalDate, small: Boolean
                     .semantics { contentDescription = "이 위젯 꾸미기 설정 열기" },
                 contentAlignment = Alignment.Center,
             ) {
-                Text("⚙", style = TextStyle(fontSize = 18.scaledSp(appearance)))
+                Text("⚙", style = TextStyle(fontSize = 18.scaledSp(appearance), color = primaryTextColor(appearance)))
             }
         }
     }
@@ -308,7 +344,12 @@ private fun SyncStatus(snapshot: DashboardSnapshot, appearance: WidgetAppearance
     val missing = snapshot.fileStatuses.filter { it.notFoundAtMillis != null }
     val stale = snapshot.fileStatuses.filter { it.error != null }
     when {
-        snapshot.errors.isNotEmpty() || stale.isNotEmpty() -> Text(
+        snapshot.syncInProgress -> Text(
+            "동기화 중 · 저장된 내용 표시",
+            maxLines = 1,
+            style = bodyStyle(appearance, 10, variant = true),
+        )
+        snapshot.errors.isNotEmpty() || snapshot.lastSyncHadErrors || stale.isNotEmpty() -> Text(
             "⚠ 일부 갱신 실패 · 이전 내용 표시 · 앱에서 상세 확인",
             maxLines = 2,
             style = bodyStyle(appearance, 10, error = true),
@@ -330,26 +371,30 @@ private fun SyncStatus(snapshot: DashboardSnapshot, appearance: WidgetAppearance
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
 private fun Summary(snapshot: DashboardSnapshot, done: Int, total: Int, activeProjects: Int, appearance: WidgetAppearance) {
-    Text(
-        "할 일 $done/$total · 진행 중 프로젝트 ${activeProjects}개",
-        maxLines = 2,
-        style = bodyStyle(appearance, 12, bold = true),
-    )
-    LinearProgressIndicator(
-        progress = if (total == 0) 0f else done.toFloat() / total,
-        modifier = GlanceModifier.fillMaxWidth().height(6.dp)
-            .semantics { contentDescription = "오늘 할 일 ${done}개 완료, 전체 ${total}개" },
-        color = appearanceAccent(appearance),
-    )
+    Column(modifier = GlanceModifier.fillMaxWidth()) {
+        Text(
+            "할 일 $done/$total · 진행 중 프로젝트 ${activeProjects}개",
+            maxLines = 2,
+            style = bodyStyle(appearance, 12, bold = true),
+        )
+        LinearProgressIndicator(
+            progress = if (total == 0) 0f else done.toFloat() / total,
+            modifier = GlanceModifier.fillMaxWidth().height(6.dp)
+                .semantics { contentDescription = "오늘 할 일 ${done}개 완료, 전체 ${total}개" },
+            color = appearanceAccent(appearance),
+        )
+    }
 }
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
 private fun ConnectionRequired(snapshot: DashboardSnapshot, appearance: WidgetAppearance) {
-    val headline = if (snapshot.connectionState == WidgetConnectionState.REAUTHENTICATE) "다시 연결해 주세요" else "앱에서 연결을 설정하세요"
-    Text(headline, style = bodyStyle(appearance, 15, bold = true))
-    Spacer(GlanceModifier.height(4.dp))
-    Text("탭하여 Dashboard 설정을 엽니다.", style = bodyStyle(appearance, 12, variant = true))
+    Column {
+        val headline = if (snapshot.connectionState == WidgetConnectionState.REAUTHENTICATE) "다시 연결해 주세요" else "앱에서 연결을 설정하세요"
+        Text(headline, style = bodyStyle(appearance, 15, bold = true))
+        Spacer(GlanceModifier.height(4.dp))
+        Text("탭하여 Dashboard 설정을 엽니다.", style = bodyStyle(appearance, 12, variant = true))
+    }
 }
 
 @androidx.glance.GlanceComposable
@@ -361,13 +406,15 @@ private fun NextEventSummary(
     zone: ZoneId,
     appearance: WidgetAppearance,
 ) {
-    Text("다음 시간 일정", style = bodyStyle(appearance, 10, bold = true, variant = true))
-    val label = when {
-        !snapshot.calendarAvailable -> "캘린더 연결 안 됨"
-        next == null -> "남은 시간 일정 없음"
-        else -> "${timeLabel(next, zone, today)} ${next.event.title}"
+    Column(modifier = GlanceModifier.fillMaxWidth()) {
+        Text("다음 시간 일정", style = bodyStyle(appearance, 10, bold = true, variant = true))
+        val label = when {
+            !snapshot.calendarAvailable -> "캘린더 연결 안 됨"
+            next == null -> "남은 시간 일정 없음"
+            else -> "${timeLabel(next, zone, today)} ${next.event.title}"
+        }
+        Text(label, maxLines = 2, style = bodyStyle(appearance, 12, bold = next?.let { CalendarRules.isInProgress(it, Instant.now()) } == true))
     }
-    Text(label, maxLines = 2, style = bodyStyle(appearance, 12, bold = next?.let { CalendarRules.isInProgress(it, Instant.now()) } == true))
 }
 
 @androidx.glance.GlanceComposable
@@ -510,7 +557,8 @@ internal object TodoToggleParameters {
 internal const val CLEAR_DONE_TARGET = "__clear__"
 
 private fun syncLabel(snapshot: DashboardSnapshot): String = when {
-    snapshot.errors.isNotEmpty() -> "부분 실패 · ${snapshot.lastCompleteSyncAtMillis?.let(::formatTime) ?: "완료 기록 없음"}"
+    snapshot.syncInProgress -> "동기화 중…"
+    snapshot.errors.isNotEmpty() || snapshot.lastSyncHadErrors -> "부분 실패 · ${snapshot.lastCompleteSyncAtMillis?.let(::formatTime) ?: "완료 기록 없음"}"
     snapshot.lastCompleteSyncAtMillis == null -> "갱신 기록 없음"
     else -> "확인 ${formatTime(snapshot.lastCompleteSyncAtMillis)}"
 }
@@ -541,11 +589,11 @@ private fun bodyStyle(
     fontSize = size.scaledSp(appearance),
     fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
     color = when {
-        error -> ColorProvider(Color.rgb(0xB3, 0x26, 0x1E))
+        error -> errorTextColor(appearance)
         accent -> appearanceAccent(appearance)
-        variant && appearance.colorMode != AppearanceColorMode.AUTOMATIC -> ColorProvider(contrastText(appearance).let { if (it == Color.WHITE) Color.LTGRAY else Color.DKGRAY })
+        variant && appearance.colorMode != AppearanceColorMode.AUTOMATIC -> glanceColor(contrastText(appearance).let { if (it == Color.WHITE) Color.LTGRAY else Color.DKGRAY })
         appearance.colorMode == AppearanceColorMode.AUTOMATIC -> if (variant) androidx.glance.GlanceTheme.colors.onSurfaceVariant else androidx.glance.GlanceTheme.colors.onSurface
-        else -> ColorProvider(contrastText(appearance))
+        else -> glanceColor(contrastText(appearance))
     },
 )
 
@@ -557,39 +605,49 @@ private fun appearanceColors(appearance: WidgetAppearance): ColorProviders {
     val alphaBackground = backgroundArgb(appearance)
     val secondary = if (foreground == Color.WHITE) Color.LTGRAY else Color.DKGRAY
     return colorProviders(
-        primary = ColorProvider(accent),
-        onPrimary = ColorProvider(foreground),
-        primaryContainer = ColorProvider(withAlpha(accent, 0x33)),
-        onPrimaryContainer = ColorProvider(foreground),
-        secondary = ColorProvider(accent),
-        onSecondary = ColorProvider(foreground),
-        secondaryContainer = ColorProvider(withAlpha(accent, 0x22)),
-        onSecondaryContainer = ColorProvider(foreground),
-        tertiary = ColorProvider(accent),
-        onTertiary = ColorProvider(foreground),
-        tertiaryContainer = ColorProvider(withAlpha(accent, 0x22)),
-        onTertiaryContainer = ColorProvider(foreground),
-        error = ColorProvider(Color.rgb(0xB3, 0x26, 0x1E)),
-        errorContainer = ColorProvider(Color.rgb(0xF9, 0xDE, 0xDC)),
-        onError = ColorProvider(Color.WHITE),
-        onErrorContainer = ColorProvider(Color.rgb(0x41, 0x1E, 0x1B)),
-        background = ColorProvider(alphaBackground),
-        onBackground = ColorProvider(foreground),
-        surface = ColorProvider(alphaBackground),
-        onSurface = ColorProvider(foreground),
-        surfaceVariant = ColorProvider(withAlpha(background, if (appearance.contrastAssist) 0xD9 else 0x88)),
-        onSurfaceVariant = ColorProvider(secondary),
-        outline = ColorProvider(withAlpha(foreground, 0x55)),
-        inverseOnSurface = ColorProvider(background),
-        inverseSurface = ColorProvider(foreground),
-        inversePrimary = ColorProvider(accent),
+        primary = glanceColor(accent),
+        onPrimary = glanceColor(foreground),
+        primaryContainer = glanceColor(withAlpha(accent, 0x33)),
+        onPrimaryContainer = glanceColor(foreground),
+        secondary = glanceColor(accent),
+        onSecondary = glanceColor(foreground),
+        secondaryContainer = glanceColor(withAlpha(accent, 0x22)),
+        onSecondaryContainer = glanceColor(foreground),
+        tertiary = glanceColor(accent),
+        onTertiary = glanceColor(foreground),
+        tertiaryContainer = glanceColor(withAlpha(accent, 0x22)),
+        onTertiaryContainer = glanceColor(foreground),
+        error = glanceColor(Color.rgb(0xB3, 0x26, 0x1E)),
+        errorContainer = glanceColor(Color.rgb(0xF9, 0xDE, 0xDC)),
+        onError = glanceColor(Color.WHITE),
+        onErrorContainer = glanceColor(Color.rgb(0x41, 0x1E, 0x1B)),
+        background = glanceColor(alphaBackground),
+        onBackground = glanceColor(foreground),
+        surface = glanceColor(alphaBackground),
+        onSurface = glanceColor(foreground),
+        surfaceVariant = glanceColor(withAlpha(background, if (appearance.contrastAssist) 0xD9 else 0x88)),
+        onSurfaceVariant = glanceColor(secondary),
+        outline = glanceColor(withAlpha(foreground, 0x55)),
+        inverseOnSurface = glanceColor(background),
+        inverseSurface = glanceColor(foreground),
+        inversePrimary = glanceColor(accent),
     )
 }
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
 private fun appearanceAccent(appearance: WidgetAppearance): ColorProvider =
-    if (appearance.colorMode == AppearanceColorMode.AUTOMATIC) androidx.glance.GlanceTheme.colors.primary else ColorProvider(baseAccent(appearance))
+    if (appearance.colorMode == AppearanceColorMode.AUTOMATIC) androidx.glance.GlanceTheme.colors.primary else glanceColor(baseAccent(appearance))
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun primaryTextColor(appearance: WidgetAppearance): ColorProvider =
+    if (appearance.colorMode == AppearanceColorMode.AUTOMATIC) androidx.glance.GlanceTheme.colors.onSurface else glanceColor(contrastText(appearance))
+
+private fun errorTextColor(appearance: WidgetAppearance): ColorProvider =
+    if (contrastText(appearance) == Color.WHITE) glanceColor(Color.rgb(0xFF, 0xB4, 0xAB)) else glanceColor(Color.rgb(0xB3, 0x26, 0x1E))
+
+private fun glanceColor(color: Int): ColorProvider = ColorProvider(androidx.compose.ui.graphics.Color(color))
 
 private fun backgroundArgb(appearance: WidgetAppearance): Int =
     withAlpha(baseBackground(appearance), (appearance.backgroundOpacityPercent * 255 / 100))
@@ -600,7 +658,7 @@ private fun baseBackground(appearance: WidgetAppearance): Int = when (appearance
     AppearanceColorMode.DARK -> Color.rgb(0x17, 0x1A, 0x17)
     AppearanceColorMode.OCEAN -> Color.rgb(0xE9, 0xF3, 0xFC)
     AppearanceColorMode.FOREST -> Color.rgb(0xED, 0xF4, 0xE9)
-    AppearanceColorMode.CUSTOM -> runCatching { Color.parseColor(appearance.backgroundHex) }.getOrDefault(Color.WHITE)
+    AppearanceColorMode.CUSTOM -> runCatching { appearance.backgroundHex.toColorInt() }.getOrDefault(Color.WHITE)
 }
 
 private fun baseAccent(appearance: WidgetAppearance): Int = when (appearance.colorMode) {
@@ -609,7 +667,7 @@ private fun baseAccent(appearance: WidgetAppearance): Int = when (appearance.col
     AppearanceColorMode.DARK -> Color.rgb(0x91, 0xD5, 0xB3)
     AppearanceColorMode.OCEAN -> Color.rgb(0x20, 0x56, 0xA0)
     AppearanceColorMode.FOREST -> Color.rgb(0x35, 0x62, 0x3B)
-    AppearanceColorMode.CUSTOM -> runCatching { Color.parseColor(appearance.accentHex) }.getOrDefault(Color.rgb(0x00, 0x6C, 0x4C))
+    AppearanceColorMode.CUSTOM -> runCatching { appearance.accentHex.toColorInt() }.getOrDefault(Color.rgb(0x00, 0x6C, 0x4C))
 }
 
 private fun contrastText(appearance: WidgetAppearance): Int {
@@ -624,7 +682,8 @@ private fun contrastText(appearance: WidgetAppearance): Int {
 
 private fun withAlpha(color: Int, alpha: Int): Int = (color and 0x00FFFFFF) or (alpha.coerceIn(0, 255) shl 24)
 
-private fun stableId(value: String): Long = value.fold(0xcbf29ce484222325UL.toLong()) { hash, char -> (hash xor char.code.toLong()) * 0x100000001b3L }
+internal fun stableId(value: String): Long =
+    value.fold(0xcbf29ce484222325UL.toLong()) { hash, char -> (hash xor char.code.toLong()) * 0x100000001b3L } and Long.MAX_VALUE
 
 private fun GlanceModifier.thenIf(condition: Boolean, transform: GlanceModifier.() -> GlanceModifier): GlanceModifier =
     if (condition) transform() else this

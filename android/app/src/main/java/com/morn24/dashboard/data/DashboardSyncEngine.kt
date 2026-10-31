@@ -33,6 +33,7 @@ data class DashboardSnapshot(
     val lastUpdatedAtMillis: Long? = null,
     val lastCompleteSyncAtMillis: Long? = null,
     val lastSyncHadErrors: Boolean = false,
+    val syncInProgress: Boolean = false,
     val fileStatuses: List<FileSyncStatus> = emptyList(),
     val undo: CompletedTodoUndo? = null,
     val pendingUndoTodoId: String? = null,
@@ -72,9 +73,14 @@ class DashboardSyncEngine(
         } catch (_: Exception) {
             return@withContext DashboardSnapshot(WidgetConnectionState.REAUTHENTICATE, settings.webUrl)
         }
+        store.recordSyncStartedIfGeneration(clock.millis(), generation)
+        var syncFinished = false
+        try {
         val repository = try {
             repositoryFactory.create(settings.owner, settings.repository, settings.branch, token)
         } catch (_: Exception) {
+            store.recordSyncResultIfGeneration(clock.millis(), true, generation)
+            syncFinished = true
             return@withContext cachedSnapshot(settings, generation, listOf("저장소 연결을 확인하지 못했어요."))
         }
 
@@ -108,6 +114,7 @@ class DashboardSyncEngine(
             return@withContext cachedSnapshot(store.settings(), store.generation(), listOf("설정이 바뀌었어요. 새로고침해 주세요."))
         }
         store.recordSyncResultIfGeneration(clock.millis(), errors.isNotEmpty(), generation)
+        syncFinished = true
         val timestamps = DashboardFile.entries.mapNotNull { store.cached(it).lastSuccessAtMillis }
         val (displayTodos, pendingTodoIds) = overlayPendingTodos(todos.value, generation)
         val fileStatuses = DashboardFile.entries.map { file -> store.cached(file).toStatus(file) }
@@ -122,10 +129,14 @@ class DashboardSyncEngine(
             lastUpdatedAtMillis = timestamps.maxOrNull(),
             lastCompleteSyncAtMillis = store.lastCompleteSyncAtMillis(),
             lastSyncHadErrors = store.lastSyncHadErrors(),
+            syncInProgress = store.syncInProgress(),
             fileStatuses = fileStatuses,
             undo = store.completedUndo()?.takeIf { it.generation == generation },
             errors = errors.distinct(),
         )
+        } finally {
+            if (!syncFinished) store.recordSyncResultIfGeneration(clock.millis(), true, generation)
+        }
     }
 
     private suspend fun <T> loadFile(
@@ -154,6 +165,7 @@ class DashboardSyncEngine(
                 }
                 RemoteRead.NotFound -> {
                     store.recordFileNotFoundIfGeneration(file, clock.millis(), generation)
+                    if (file != DashboardFile.CALENDAR) errors += "${file.path} 파일을 찾지 못했어요."
                     return FileDisplay(emptyValue, available = false)
                 }
             }
@@ -199,6 +211,8 @@ class DashboardSyncEngine(
         val todoCache = cached(DashboardFile.TODOS, emptyList<Todo>(), DashboardDisplayData::todos)
         val projectCache = cached(DashboardFile.PROJECTS, emptyList<Project>(), DashboardDisplayData::projects)
         val calendarCache = cached(DashboardFile.CALENDAR, emptyList<CalendarEvent>(), DashboardDisplayData::events)
+        if (store.cached(DashboardFile.TODOS).notFoundAtMillis != null) errors += "${DashboardFile.TODOS.path} 파일을 찾지 못했어요."
+        if (store.cached(DashboardFile.PROJECTS).notFoundAtMillis != null) errors += "${DashboardFile.PROJECTS.path} 파일을 찾지 못했어요."
         val timestamps = DashboardFile.entries.mapNotNull { store.cached(it).lastSuccessAtMillis }
         val (displayTodos, pendingTodoIds) = overlayPendingTodos(todoCache.first, generation)
         val fileStatuses = DashboardFile.entries.map { file -> store.cached(file).toStatus(file) }
@@ -213,6 +227,7 @@ class DashboardSyncEngine(
             lastUpdatedAtMillis = timestamps.maxOrNull(),
             lastCompleteSyncAtMillis = store.lastCompleteSyncAtMillis(),
             lastSyncHadErrors = store.lastSyncHadErrors(),
+            syncInProgress = store.syncInProgress(),
             fileStatuses = fileStatuses,
             undo = store.completedUndo()?.takeIf { it.generation == generation },
             errors = errors.distinct(),

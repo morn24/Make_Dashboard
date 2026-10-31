@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">Dashboard</string>
     <string name="widget_description">오늘 할 일, 일정, 프로젝트 진행 상황을 보여주는 위젯</string>
+    <string name="widget_preview_date">오늘 · Dashboard</string>
+    <string name="widget_preview_summary">할 일 2/5 · 진행 중 프로젝트 3개</string>
+    <string name="widget_preview_todo_open">□  주간 계획 정리</string>
+    <string name="widget_preview_todo_done">☑  자료 검토</string>
+    <string name="widget_preview_meeting">다음 일정  14:30 팀 회의</string>
 </resources>
