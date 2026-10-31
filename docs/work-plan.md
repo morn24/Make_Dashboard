@@ -55,6 +55,7 @@
 
 - 구체 설계·검증 게이트: [안드로이드 위젯 업무계획서](android-work-plan.md). 별도 Luna(`gpt-6-luna`)·max 세션은 [구현 수행지시문](instructions/02-android-widget-luna.md)을 따른다.
 - 2026-10-31 자동 구현 기록: Kotlin/Glance 3크기 위젯, 암호화 설정, GitHub 읽기·체크 Worker, 30분/현지 자정 예약 구현. `gradlew.bat test assembleDebug` 통과, JUnit 51개 통과. 오프라인 캐시·체크 오류/원복과 현지 자정/DST 규칙은 단위 테스트로 확인했다. 실제 Galaxy S25 표시·수동 체크와 웹앱 간 상호 반영은 아직 미확인이다. 설치 절차는 [Android 설치 안내](android-setup.md)에 있다.
+- 2026-11-01 개선판 구현 완료: 위젯별 꾸미기·즉시 체크/실행 취소·크기별 레이아웃·부분 동기화 상태·일정 경계 재렌더·관리 홈/위젯 추가를 구현했다. Pixel 6a API 37 에뮬레이터 렌더와 69개 단위 테스트, `test assembleDebug lintDebug`를 통과했고 업데이트용 APK 및 대응표를 만들었다. Galaxy S25 실기기 표시와 위젯↔웹앱 데이터 왕복은 사용자가 확인해야 하므로 미완료 상태다. [개선판 검증 기록](android-ux-verification.md).
 - 산출물: `android/` 폴더의 Kotlin 프로젝트, 폰에 설치된 앱과 위젯
 - 완료 기준
   - 홈 화면에 위젯을 추가하면 오늘 할 일 진행률, 미완료 할 일, 프로젝트별 진행률과 다음 과제가 보인다.
