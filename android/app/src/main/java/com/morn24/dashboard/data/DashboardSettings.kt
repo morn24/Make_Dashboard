@@ -35,6 +35,8 @@ data class CachedJsonFile(
     val sha: String?,
     val lastSuccessAtMillis: Long?,
     val error: String?,
+    val lastAttemptAtMillis: Long? = null,
+    val notFoundAtMillis: Long? = null,
 )
 
 @Serializable
@@ -45,4 +47,45 @@ data class PendingTodoToggle(
     val tappedDate: String,
     val expectedGeneration: Long,
     val createdAtMillis: Long,
+    val title: String = "할 일",
+    val undoRecordId: String? = null,
+    val requiresExpectedMatch: Boolean = false,
+    val expectedDoneOn: String? = null,
 )
+
+@Serializable
+data class CompletedTodoUndo(
+    val recordId: String,
+    val todoId: String,
+    val title: String,
+    val originalDoneOn: String?,
+    val completedDoneOn: String,
+    val completedDate: String,
+    val generation: Long,
+    val completedAtMillis: Long,
+)
+
+@Serializable
+enum class AppearanceColorMode { AUTOMATIC, LIGHT, DARK, OCEAN, FOREST, CUSTOM }
+
+@Serializable
+data class WidgetAppearance(
+    val colorMode: AppearanceColorMode = AppearanceColorMode.AUTOMATIC,
+    val backgroundHex: String = "#FFF8F2",
+    val accentHex: String = "#006C4C",
+    val fontScalePercent: Int = 100,
+    val backgroundOpacityPercent: Int = 100,
+    val contrastAssist: Boolean = true,
+) {
+    fun sanitized(): WidgetAppearance = copy(
+        fontScalePercent = fontScalePercent.coerceIn(80, 150).let { (it / 10) * 10 },
+        backgroundOpacityPercent = backgroundOpacityPercent.coerceIn(0, 100).let { (it / 5) * 5 },
+        backgroundHex = backgroundHex.takeIf(HEX_COLOR::matches) ?: DEFAULT.backgroundHex,
+        accentHex = accentHex.takeIf(HEX_COLOR::matches) ?: DEFAULT.accentHex,
+    )
+
+    companion object {
+        val DEFAULT = WidgetAppearance()
+        private val HEX_COLOR = Regex("^#[0-9A-Fa-f]{6}$")
+    }
+}

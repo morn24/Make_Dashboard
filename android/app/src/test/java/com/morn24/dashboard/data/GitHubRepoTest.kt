@@ -132,9 +132,9 @@ class GitHubRepoTest {
 
     @Test
     fun retries422ConflictAndSucceedsWithTheFreshSha() {
-        server.enqueue(okResponse(contentResponse("""{"items":[{"id":"t1","doneOn":null}]}""", "sha-old")))
+        server.enqueue(okResponse(contentResponse("""{"items":[{"id":"t1","doneOn":"2026-10-30"}]}""", "sha-old")))
         server.enqueue(MockResponse.Builder().code(422).body("conflict").build())
-        server.enqueue(okResponse(contentResponse("""{"items":[{"id":"t1","doneOn":null}],"newField":true}""", "sha-new")))
+        server.enqueue(okResponse(contentResponse("""{"items":[{"id":"t1","doneOn":"2026-10-30"}],"newField":true}""", "sha-new")))
         server.enqueue(okResponse("""{"content":{"sha":"sha-saved"}}"""))
 
         val result = repo().updateTodo("t1", null)
@@ -170,6 +170,47 @@ class GitHubRepoTest {
         server.enqueue(okResponse(contentResponse("""{"items":[{"id":"other"}]}""", "sha")))
         assertTrue(runCatching { repo().updateTodo("missing", "2026-10-31") }.exceptionOrNull() is MissingTodoException)
         assertEquals("GET", server.takeRequest().method)
+        assertEquals(null, server.takeRequest(10, java.util.concurrent.TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun repeatedTargetIsIdempotentAndDoesNotWriteANewCommit() {
+        val current = """{"version":1,"items":[{"id":"t1","doneOn":"2026-10-31"}]}"""
+        server.enqueue(okResponse(contentResponse(current, "sha-current")))
+
+        val result = repo().updateTodo("t1", "2026-10-31")
+
+        assertEquals("sha-current", result.sha)
+        assertEquals("2026-10-31", result.originalDoneOn)
+        assertFalse(result.changed)
+        assertEquals("GET", server.takeRequest().method)
+        assertEquals(null, server.takeRequest(10, java.util.concurrent.TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun conditionalUndoRejectsAValueChangedByAnotherDeviceBeforeWriting() {
+        val current = """{"version":1,"items":[{"id":"t1","doneOn":"2026-11-01"}]}"""
+        server.enqueue(okResponse(contentResponse(current, "sha-current")))
+
+        val error = runCatching { repo().updateTodoIfCurrent("t1", "2026-10-31", null) }.exceptionOrNull()
+
+        assertTrue(error is UndoConflictException)
+        assertEquals("GET", server.takeRequest().method)
+        assertEquals(null, server.takeRequest(10, java.util.concurrent.TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun conditionalUndoRechecksExpectedValueAfterAShaConflict() {
+        val first = """{"version":1,"items":[{"id":"t1","doneOn":"2026-10-31"}]}"""
+        val changed = """{"version":1,"items":[{"id":"t1","doneOn":"2026-11-01"}]}"""
+        server.enqueue(okResponse(contentResponse(first, "sha-1")))
+        server.enqueue(MockResponse.Builder().code(409).body("conflict").build())
+        server.enqueue(okResponse(contentResponse(changed, "sha-2")))
+
+        val error = runCatching { repo(sleeper = {}).updateTodoIfCurrent("t1", "2026-10-31", null) }.exceptionOrNull()
+
+        assertTrue(error is UndoConflictException)
+        assertEquals(listOf("GET", "PUT", "GET"), (1..3).map { server.takeRequest().method })
         assertEquals(null, server.takeRequest(10, java.util.concurrent.TimeUnit.MILLISECONDS))
     }
 

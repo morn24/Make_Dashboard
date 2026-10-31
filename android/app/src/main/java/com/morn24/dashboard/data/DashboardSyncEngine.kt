@@ -14,6 +14,14 @@ import kotlinx.serialization.json.JsonObject
 
 enum class WidgetConnectionState { NEEDS_SETUP, READY, REAUTHENTICATE }
 
+data class FileSyncStatus(
+    val file: DashboardFile,
+    val lastSuccessAtMillis: Long?,
+    val lastAttemptAtMillis: Long?,
+    val error: String?,
+    val notFoundAtMillis: Long?,
+)
+
 data class DashboardSnapshot(
     val connectionState: WidgetConnectionState,
     val webUrl: String,
@@ -23,6 +31,12 @@ data class DashboardSnapshot(
     val calendarEvents: List<CalendarEvent> = emptyList(),
     val calendarAvailable: Boolean = false,
     val lastUpdatedAtMillis: Long? = null,
+    val lastCompleteSyncAtMillis: Long? = null,
+    val lastSyncHadErrors: Boolean = false,
+    val fileStatuses: List<FileSyncStatus> = emptyList(),
+    val undo: CompletedTodoUndo? = null,
+    val pendingUndoTodoId: String? = null,
+    val appearance: WidgetAppearance = WidgetAppearance.DEFAULT,
     val errors: List<String> = emptyList(),
 )
 
@@ -93,8 +107,10 @@ class DashboardSyncEngine(
         if (store.generation() != generation) {
             return@withContext cachedSnapshot(store.settings(), store.generation(), listOf("설정이 바뀌었어요. 새로고침해 주세요."))
         }
+        store.recordSyncResultIfGeneration(clock.millis(), errors.isNotEmpty(), generation)
         val timestamps = DashboardFile.entries.mapNotNull { store.cached(it).lastSuccessAtMillis }
         val (displayTodos, pendingTodoIds) = overlayPendingTodos(todos.value, generation)
+        val fileStatuses = DashboardFile.entries.map { file -> store.cached(file).toStatus(file) }
         DashboardSnapshot(
             connectionState = WidgetConnectionState.READY,
             webUrl = settings.webUrl,
@@ -104,6 +120,10 @@ class DashboardSyncEngine(
             calendarEvents = calendar.value,
             calendarAvailable = calendar.available,
             lastUpdatedAtMillis = timestamps.maxOrNull(),
+            lastCompleteSyncAtMillis = store.lastCompleteSyncAtMillis(),
+            lastSyncHadErrors = store.lastSyncHadErrors(),
+            fileStatuses = fileStatuses,
+            undo = store.completedUndo()?.takeIf { it.generation == generation },
             errors = errors.distinct(),
         )
     }
@@ -132,7 +152,10 @@ class DashboardSyncEngine(
                     store.saveSuccessfulFileIfGeneration(file, result.rawJson, result.sha, clock.millis(), generation)
                     return FileDisplay(parsed, available = true)
                 }
-                RemoteRead.NotFound -> return FileDisplay(emptyValue, available = false)
+                RemoteRead.NotFound -> {
+                    store.recordFileNotFoundIfGeneration(file, clock.millis(), generation)
+                    return FileDisplay(emptyValue, available = false)
+                }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -160,6 +183,7 @@ class DashboardSyncEngine(
         suspend fun <T> cached(file: DashboardFile, emptyValue: T, parse: (JsonObject) -> T): Pair<T, Boolean> {
             val cache = store.cached(file)
             cache.error?.let { errors += it }
+            if (cache.notFoundAtMillis != null) return emptyValue to false
             if (cache.rawJson == null) return emptyValue to false
             val value = runCatching { parse(Json.parseToJsonElement(cache.rawJson) as JsonObject) }.getOrNull()
             if (value == null) {
@@ -177,6 +201,7 @@ class DashboardSyncEngine(
         val calendarCache = cached(DashboardFile.CALENDAR, emptyList<CalendarEvent>(), DashboardDisplayData::events)
         val timestamps = DashboardFile.entries.mapNotNull { store.cached(it).lastSuccessAtMillis }
         val (displayTodos, pendingTodoIds) = overlayPendingTodos(todoCache.first, generation)
+        val fileStatuses = DashboardFile.entries.map { file -> store.cached(file).toStatus(file) }
         return DashboardSnapshot(
             connectionState = WidgetConnectionState.READY,
             webUrl = settings.webUrl,
@@ -186,6 +211,10 @@ class DashboardSyncEngine(
             calendarEvents = calendarCache.first,
             calendarAvailable = calendarCache.second,
             lastUpdatedAtMillis = timestamps.maxOrNull(),
+            lastCompleteSyncAtMillis = store.lastCompleteSyncAtMillis(),
+            lastSyncHadErrors = store.lastSyncHadErrors(),
+            fileStatuses = fileStatuses,
+            undo = store.completedUndo()?.takeIf { it.generation == generation },
             errors = errors.distinct(),
         )
     }
@@ -211,3 +240,11 @@ class DashboardSyncEngine(
 
     private data class FileDisplay<T>(val value: T, val available: Boolean)
 }
+
+private fun CachedJsonFile.toStatus(file: DashboardFile) = FileSyncStatus(
+    file = file,
+    lastSuccessAtMillis = lastSuccessAtMillis,
+    lastAttemptAtMillis = lastAttemptAtMillis,
+    error = error,
+    notFoundAtMillis = notFoundAtMillis,
+)

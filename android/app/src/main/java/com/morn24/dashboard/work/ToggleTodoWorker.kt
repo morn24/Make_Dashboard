@@ -36,12 +36,14 @@ class ToggleTodoWorker(
             val store = DashboardStore.from(applicationContext)
             val cleanup = runCatching {
                 store.pendingToggle(todoId)?.takeIf { it.operationId == operationId }?.let { pending ->
-                    store.recordFileErrorIfGeneration(
-                        file = com.morn24.dashboard.data.DashboardFile.TODOS,
-                        safeMessage = "할 일 작업을 완료하지 못했어요. 체크를 원래 상태로 되돌렸어요.",
-                        expectedGeneration = pending.expectedGeneration,
+                    store.recordPendingFailure(
+                        pending,
+                        if (pending.undoRecordId == null) {
+                            "할 일 작업을 완료하지 못했어요. 체크를 원래 상태로 되돌렸어요."
+                        } else {
+                            "실행 취소를 저장하지 못했어요. 완료 상태는 유지했어요."
+                        },
                     )
-                    store.removePendingToggle(todoId, operationId)
                 }
             }
             if (cleanup.isSuccess) Result.success() else Result.retry()

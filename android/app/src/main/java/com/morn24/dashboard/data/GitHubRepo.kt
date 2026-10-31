@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -31,12 +32,15 @@ data class MutationResult(
     val sha: String,
     val previousSha: String,
     val updatedAt: String,
+    val originalDoneOn: String? = null,
+    val changed: Boolean = true,
 )
 
 class GitHubApiException(val statusCode: Int) : IOException("GitHub API request failed with HTTP $statusCode")
 class InvalidRemoteJsonException(cause: Throwable) : IOException("GitHub returned invalid JSON", cause)
 class MissingRemoteFileException(path: String) : IOException("GitHub file is missing: $path")
 class MissingTodoException(todoId: String) : IOException("Todo no longer exists: $todoId")
+class UndoConflictException : IOException("Todo completion changed after the action")
 
 class GitHubRepo(
     private val owner: String,
@@ -78,7 +82,21 @@ class GitHubRepo(
         }
     }
 
-    override fun updateTodo(todoId: String, targetDoneOn: String?): MutationResult {
+    override fun updateTodo(todoId: String, targetDoneOn: String?): MutationResult =
+        updateTodoInternal(todoId, checkExpected = false, expectedDoneOn = null, targetDoneOn = targetDoneOn)
+
+    override fun updateTodoIfCurrent(
+        todoId: String,
+        expectedDoneOn: String?,
+        targetDoneOn: String?,
+    ): MutationResult = updateTodoInternal(todoId, checkExpected = true, expectedDoneOn = expectedDoneOn, targetDoneOn = targetDoneOn)
+
+    private fun updateTodoInternal(
+        todoId: String,
+        checkExpected: Boolean,
+        expectedDoneOn: String?,
+        targetDoneOn: String?,
+    ): MutationResult {
         repeat(MAX_PUT_ATTEMPTS) { attempt ->
             val remote = read(DashboardFile.TODOS)
             if (remote !is RemoteRead.Found) throw MissingRemoteFileException(DashboardFile.TODOS.path)
@@ -89,12 +107,25 @@ class GitHubRepo(
             }
             if (todoIndex < 0) throw MissingTodoException(todoId)
 
+            val original = items[todoIndex].jsonObject
+            val originalDoneOn = when (val value = original["doneOn"]) {
+                null, JsonNull -> null
+                is JsonPrimitive -> value.contentOrNull?.takeIf { value.isString }
+                    ?: throw InvalidRemoteJsonException(IllegalArgumentException("todos.doneOn is not a string or null"))
+                else -> throw InvalidRemoteJsonException(IllegalArgumentException("todos.doneOn is not a string or null"))
+            }
+            if (checkExpected && originalDoneOn != expectedDoneOn) throw UndoConflictException()
+            if (originalDoneOn == targetDoneOn) {
+                val updatedAt = (remote.document["updatedAt"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+                return MutationResult(remote.document, remote.sha, remote.sha, updatedAt, originalDoneOn, changed = false)
+            }
+
             val updatedAt = OffsetDateTime.now(clock).toString()
             val updatedItems = items.mapIndexed { index, item ->
                 if (index != todoIndex) item
                 else {
-                    val original = item.jsonObject
-                    JsonObject(original.toMutableMap().apply {
+                    val current = item.jsonObject
+                    JsonObject(current.toMutableMap().apply {
                         put("doneOn", targetDoneOn?.let(::JsonPrimitive) ?: JsonNull)
                     })
                 }
@@ -106,7 +137,7 @@ class GitHubRepo(
 
             try {
                 val newSha = put(DashboardFile.TODOS.path, updatedDocument, remote.sha, TODO_COMMIT_MESSAGE)
-                return MutationResult(updatedDocument, newSha, remote.sha, updatedAt)
+                return MutationResult(updatedDocument, newSha, remote.sha, updatedAt, originalDoneOn, changed = true)
             } catch (error: GitHubApiException) {
                 if (error.statusCode !in CONFLICT_STATUSES || attempt == MAX_PUT_ATTEMPTS - 1) throw error
                 sleeper(RETRY_DELAY_MS * (attempt + 1))

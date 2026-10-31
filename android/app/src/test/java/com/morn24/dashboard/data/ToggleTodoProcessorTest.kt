@@ -120,6 +120,66 @@ class ToggleTodoProcessorTest {
         assertEquals(rawTodos, store.cached(DashboardFile.TODOS).rawJson)
     }
 
+    @Test
+    fun successfulCompletionStoresTheOriginalValueForOneSafeUndo() = runBlocking {
+        val pending = preparePending(targetDoneOn = "2026-10-31")
+        val factory = factory { _, _ -> mutation(rawTodos).copy(originalDoneOn = null) }
+
+        val result = processor(factory).process(pending.todoId, pending.operationId)
+
+        assertEquals(ToggleTodoResult.Saved, result)
+        val undo = store.completedUndo()!!
+        assertEquals("todo-1", undo.todoId)
+        assertEquals("할 일", undo.title)
+        assertNull(undo.originalDoneOn)
+        assertEquals("2026-10-31", undo.completedDoneOn)
+        assertEquals(pending.expectedGeneration, undo.generation)
+        assertNull(store.pendingToggle("todo-1"))
+    }
+
+    @Test
+    fun undoUsesConditionalMutationAndKeepsRecordWhenAnotherDeviceChangedTodo() = runBlocking {
+        val completion = preparePending(targetDoneOn = "2026-10-31")
+        val finish = processor(factory { _, _ -> mutation(rawTodos).copy(originalDoneOn = null) })
+            .process(completion.todoId, completion.operationId)
+        assertEquals(ToggleTodoResult.Saved, finish)
+        val undo = store.completedUndo()!!
+        val pendingUndo = PendingTodoToggle(
+            operationId = "undo-operation",
+            todoId = undo.todoId,
+            targetDoneOn = undo.originalDoneOn,
+            tappedDate = undo.completedDate,
+            expectedGeneration = undo.generation,
+            createdAtMillis = 4_000L,
+            title = undo.title,
+            undoRecordId = undo.recordId,
+            requiresExpectedMatch = true,
+            expectedDoneOn = undo.completedDoneOn,
+        )
+        assertTrue(store.enqueuePendingToggle(pendingUndo))
+        var conditionalCalls = 0
+        val repositoryFactory = DashboardRepositoryFactory { _, _, _, _ ->
+            object : DashboardRepository {
+                override fun read(file: DashboardFile): RemoteRead = error("unused")
+                override fun updateTodo(todoId: String, targetDoneOn: String?): MutationResult = error("must use conditional update")
+                override fun updateTodoIfCurrent(todoId: String, expectedDoneOn: String?, targetDoneOn: String?): MutationResult {
+                    conditionalCalls++
+                    assertEquals(undo.completedDoneOn, expectedDoneOn)
+                    assertEquals(undo.originalDoneOn, targetDoneOn)
+                    throw UndoConflictException()
+                }
+            }
+        }
+
+        val result = processor(repositoryFactory).process(pendingUndo.todoId, pendingUndo.operationId)
+
+        assertTrue(result is ToggleTodoResult.Failed)
+        assertEquals(1, conditionalCalls)
+        assertEquals(undo, store.completedUndo())
+        assertNull(store.pendingToggle(undo.todoId))
+        assertTrue(store.cached(DashboardFile.TODOS).error.orEmpty().contains("다른 기기"))
+    }
+
     private suspend fun preparePending(targetDoneOn: String?): PendingTodoToggle {
         settings = DashboardSettings(encryptedToken = cipher.encrypt("processor-test-token"))
         val generation = store.saveSettings(settings)
@@ -128,7 +188,7 @@ class ToggleTodoProcessorTest {
             operationId = "operation-1",
             todoId = "todo-1",
             targetDoneOn = targetDoneOn,
-            tappedDate = "2026-10-31",
+            tappedDate = "1970-01-01",
             expectedGeneration = generation,
             createdAtMillis = 2_000L,
         ).also { assertTrue(store.enqueuePendingToggle(it)) }

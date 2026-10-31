@@ -57,6 +57,10 @@ class SettingsActivity : ComponentActivity() {
         )
         setContent { SettingsScreen(viewModel) }
     }
+
+    companion object {
+        const val EXTRA_WIDGET_ID = "widget_id"
+    }
 }
 
 @Composable

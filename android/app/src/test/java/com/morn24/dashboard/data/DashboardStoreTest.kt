@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
 import org.junit.After
@@ -166,6 +167,66 @@ class DashboardStoreTest {
         assertNull(cache.rawJson)
         assertNull(cache.sha)
         assertNull(cache.lastSuccessAtMillis)
+    }
+
+    @Test
+    fun widgetAppearanceIsScopedPerWidgetAndDoesNotClearConnectionOrCache() = runBlocking {
+        val generation = store.saveSettings(DashboardSettings(encryptedToken = EncryptedToken("iv", "cipher")))
+        store.saveSuccessfulFile(DashboardFile.TODOS, "{\"version\":1,\"items\":[]}", "sha", 10L)
+        val custom = WidgetAppearance(
+            colorMode = AppearanceColorMode.CUSTOM,
+            backgroundHex = "#112233",
+            accentHex = "#AABBCC",
+            fontScalePercent = 130,
+            backgroundOpacityPercent = 35,
+        )
+
+        store.saveAppearance(custom, widgetId = 101)
+        store.saveAppearance(WidgetAppearance(fontScalePercent = 90), widgetId = 102)
+
+        assertEquals(custom, store.appearance(101))
+        assertEquals(90, store.appearance(102).fontScalePercent)
+        assertEquals(WidgetAppearance.DEFAULT, store.appearance(103))
+        assertEquals(generation, store.generation())
+        assertEquals("sha", store.cached(DashboardFile.TODOS).sha)
+        assertEquals("cipher", store.settings().encryptedToken!!.ciphertextBase64)
+    }
+
+    @Test
+    fun widgetSnapshotFlowEmitsPendingTargetAndAppearanceFromOneDataStoreState() = runBlocking {
+        val generation = store.saveSettings(DashboardSettings(encryptedToken = EncryptedToken("iv", "cipher")))
+        store.saveSuccessfulFile(
+            DashboardFile.TODOS,
+            """{"version":1,"items":[{"id":"todo-1","title":"즉시 표시","repeat":"daily","doneOn":null}]}""",
+            "sha",
+            10L,
+        )
+        store.saveAppearance(WidgetAppearance(fontScalePercent = 120), widgetId = 7)
+        store.enqueuePendingToggle(
+            PendingTodoToggle("operation", "todo-1", "2026-11-01", "2026-11-01", generation, 20L, title = "즉시 표시"),
+        )
+
+        val snapshot = store.observeWidgetSnapshot(
+            initial = DashboardSnapshot(WidgetConnectionState.READY, DashboardSettings.DEFAULT_WEB_URL),
+            widgetId = 7,
+        ).first()
+
+        assertEquals(setOf("todo-1"), snapshot.pendingTodoIds)
+        assertEquals("2026-11-01", snapshot.todos.single().doneOn)
+        assertEquals(120, snapshot.appearance.fontScalePercent)
+    }
+
+    @Test
+    fun missingFileAndCompleteSyncStatusAreStoredSeparatelyFromOtherFileSuccess() = runBlocking {
+        val generation = store.saveSettings(DashboardSettings(encryptedToken = EncryptedToken("iv", "cipher")))
+        store.saveSuccessfulFile(DashboardFile.TODOS, "{}", "sha", 100L)
+        store.recordFileNotFoundIfGeneration(DashboardFile.CALENDAR, 110L, generation)
+        store.recordSyncResultIfGeneration(120L, hadErrors = false, expectedGeneration = generation)
+
+        assertEquals(110L, store.cached(DashboardFile.CALENDAR).notFoundAtMillis)
+        assertEquals(120L, store.lastCompleteSyncAtMillis())
+        assertFalse(store.lastSyncHadErrors())
+        assertEquals(100L, store.cached(DashboardFile.TODOS).lastSuccessAtMillis)
     }
 
     private fun ByteArray.containsBytes(needle: ByteArray): Boolean =
