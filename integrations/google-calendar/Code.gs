@@ -16,7 +16,13 @@ const CONFIG = {
   excludeCalendars: [], // 빼고 싶은 캘린더 이름. 예: ['대한민국의 휴일']
   skipDeclined: true, // 내가 '거절'한 초대 일정은 빼기
   intervalMinutes: 10, // 1, 5, 10, 15, 30 중 하나
+  paletteCacheSeconds: 3600,
+  labelCacheSeconds: 300,
+  fallbackEventColor: '#9AA0A6',
 };
+
+// 실행 중 여러 캘린더가 같은 event palette를 요청해도 Colors.get은 한 번만 호출한다.
+let EVENT_COLOR_PALETTE_ = null;
 
 /** 처음 한 번 실행: 토큰 확인 + 자동 실행(트리거) 등록 + 첫 동기화 */
 function setup() {
@@ -37,14 +43,14 @@ function uninstall() {
   Logger.log('자동 실행을 해제했습니다.');
 }
 
-function syncCalendar() {
+function syncCalendar(forceColorRefresh) {
   const tz = Session.getScriptTimeZone();
   const now = new Date();
   const today = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
   const startOfToday = parseLocal_(today, tz); // 스크립트 시간대 기준 오늘 0시
   const end = new Date(startOfToday.getTime() + CONFIG.daysAhead * 86400000);
 
-  const events = collectEvents_(startOfToday, end, tz);
+  const events = collectEvents_(startOfToday, end, tz, Boolean(forceColorRefresh));
   const remote = readFile_();
   const unchanged = remote.data
     && remote.data.rangeStart === today
@@ -62,18 +68,40 @@ function syncCalendar() {
   writeFile_(data, remote.sha, 'calendar: ' + today + ' 일정 ' + events.length + '개 동기화');
 }
 
-function collectEvents_(start, end, tz) {
+/** 수동 색상 확인용: 캐시를 건너뛰어 Google의 최신 팔레트/라벨을 다시 읽는다. */
+function refreshCalendarColors() {
+  syncCalendar(true);
+}
+
+function collectEvents_(start, end, tz, forceColorRefresh) {
   const out = [];
   CalendarApp.getAllCalendars().forEach((cal) => {
     if (cal.isHidden() || CONFIG.excludeCalendars.indexOf(cal.getName()) >= 0) return;
-    cal.getEvents(start, end).forEach((ev) => {
+    const calendarId = cal.getId();
+    const calendarEvents = cal.getEvents(start, end);
+    let colorSources;
+    try {
+      colorSources = readCalendarColorSources_(calendarId, start, end, forceColorRefresh);
+    } catch (error) {
+      logColorMetadataFailure_('cache');
+      colorSources = { palette: {}, labels: {}, events: new Map() };
+    }
+    let calendarColor = null;
+    try { calendarColor = cal.getColor(); } catch (error) { /* 일정의 지정 색상을 먼저 사용한다. */ }
+    calendarEvents.forEach((ev) => {
       if (CONFIG.skipDeclined && myStatus_(ev) === CalendarApp.GuestStatus.NO) return;
       const allDay = ev.isAllDayEvent();
+      const eventStart = allDay
+        ? 'date:' + Utilities.formatDate(ev.getAllDayStartDate(), tz, 'yyyy-MM-dd')
+        : 'time:' + ev.getStartTime().getTime();
+      const restEvent = colorSources.events.get(calendarEventKey_(calendarId, ev.getId(), eventStart));
+      let eventColorId = null;
+      try { eventColorId = ev.getColor(); } catch (e) { /* 색상 메타데이터가 없어도 본문은 계속 수집한다. */ }
       const item = {
         // 반복 일정은 같은 id를 공유하므로 시작 시각을 붙여 고유하게 만든다
         id: ev.getId() + '@' + ev.getStartTime().getTime(),
         calendar: cal.getName(),
-        color: cal.getColor(),
+        color: resolveEventColor_(restEvent, eventColorId, calendarColor, colorSources),
         title: ev.getTitle(),
         allDay: allDay,
         start: allDay
@@ -90,6 +118,164 @@ function collectEvents_(start, end, tz) {
   });
   out.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0) || (a.id < b.id ? -1 : 1));
   return out;
+}
+
+function readCalendarColorSources_(calendarId, start, end, forceRefresh) {
+  const palette = getEventColorPalette_(forceRefresh);
+  const labels = getCalendarLabelColors_(calendarId, forceRefresh);
+  const events = getCalendarEventColors_(calendarId, start, end, forceRefresh);
+  return { palette: palette, labels: labels, events: events };
+}
+
+function getEventColorPalette_(forceRefresh) {
+  if (!forceRefresh && EVENT_COLOR_PALETTE_) return EVENT_COLOR_PALETTE_;
+  const value = fetchCachedCalendarJson_(
+    'calendar_event_palette',
+    'https://www.googleapis.com/calendar/v3/colors',
+    CONFIG.paletteCacheSeconds,
+    forceRefresh,
+    'palette',
+  );
+  EVENT_COLOR_PALETTE_ = value && value.event ? value.event : {};
+  return EVENT_COLOR_PALETTE_;
+}
+
+function getCalendarLabelColors_(calendarId, forceRefresh) {
+  const key = 'calendar_event_labels_' + cacheHash_(calendarId);
+  const url = 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent(calendarId)
+    + '?fields=' + encodeURIComponent('labelProperties(eventLabels(id,backgroundColor))');
+  const value = fetchCachedCalendarJson_(key, url, CONFIG.labelCacheSeconds, forceRefresh, 'labels');
+  const labels = {};
+  const items = value && value.labelProperties && value.labelProperties.eventLabels;
+  (items || []).forEach((label) => {
+    const color = normalizeHexColor_(label && label.backgroundColor);
+    if (label && label.id && color) labels[label.id] = color;
+  });
+  return labels;
+}
+
+function getCalendarEventColors_(calendarId, start, end, forceRefresh) {
+  const byOccurrence = new Map();
+  let pageToken = null;
+  do {
+    const params = [
+      'timeMin=' + encodeURIComponent(start.toISOString()),
+      'timeMax=' + encodeURIComponent(end.toISOString()),
+      'singleEvents=true',
+      'showDeleted=true',
+      'maxResults=2500',
+      'eventLabelVersion=1',
+      'fields=' + encodeURIComponent('items(id,iCalUID,status,start,eventLabelId,colorId,recurringEventId,originalStartTime),nextPageToken'),
+    ];
+    if (pageToken) params.push('pageToken=' + encodeURIComponent(pageToken));
+    const url = 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent(calendarId)
+      + '/events?' + params.join('&');
+    let page;
+    try {
+      page = calendarApiGetJson_(url);
+    } catch (error) {
+      logColorMetadataFailure_('events');
+      break;
+    }
+    (page.items || []).forEach((event) => {
+      if (!event || event.status === 'cancelled' || !event.iCalUID || !event.start) return;
+      const startKey = event.start.date
+        ? 'date:' + event.start.date
+        : event.start.dateTime ? 'time:' + new Date(event.start.dateTime).getTime() : null;
+      if (!startKey) return;
+      byOccurrence.set(calendarEventKey_(calendarId, event.iCalUID, startKey), event);
+    });
+    pageToken = page.nextPageToken || null;
+  } while (pageToken);
+  return byOccurrence;
+}
+
+function calendarEventKey_(calendarId, iCalUid, startKey) {
+  return String(calendarId) + '\u0000' + String(iCalUid) + '\u0000' + String(startKey);
+}
+
+function resolveEventColor_(restEvent, calendarAppColorId, calendarColor, sources) {
+  const labels = sources.labels || {};
+  const palette = sources.palette || {};
+  if (restEvent && restEvent.eventLabelId && normalizeHexColor_(labels[restEvent.eventLabelId])) {
+    return normalizeHexColor_(labels[restEvent.eventLabelId]);
+  }
+
+  const colorIds = [restEvent && restEvent.colorId, calendarAppColorId];
+  for (let i = 0; i < colorIds.length; i++) {
+    const value = colorIds[i];
+    if (!value) continue;
+    const directHex = normalizeHexColor_(value);
+    if (directHex) return directHex;
+    const definition = palette[String(value)];
+    const paletteHex = normalizeHexColor_(definition && definition.background);
+    if (paletteHex) return paletteHex;
+  }
+
+  return normalizeHexColor_(calendarColor) || CONFIG.fallbackEventColor;
+}
+
+function normalizeHexColor_(value) {
+  return typeof value === 'string' && /^#[0-9A-Fa-f]{6}$/.test(value)
+    ? value.toUpperCase()
+    : null;
+}
+
+function fetchCachedCalendarJson_(cacheKey, url, ttlSeconds, forceRefresh, failureKind) {
+  const cache = CacheService.getScriptCache();
+  const properties = PropertiesService.getScriptProperties();
+  const dataKey = cacheKey + '_data';
+  const timeKey = cacheKey + '_at';
+  let cached = null;
+  const cacheRaw = forceRefresh ? null : cache.get(cacheKey);
+  if (cacheRaw) cached = safeJsonParse_(cacheRaw);
+  if (!cached) {
+    const storedRaw = properties.getProperty(dataKey);
+    const storedAt = Number(properties.getProperty(timeKey) || 0);
+    if (storedRaw) cached = { value: safeJsonParse_(storedRaw), fetchedAt: storedAt };
+  }
+  if (!forceRefresh && cached && cached.value && Date.now() - cached.fetchedAt < ttlSeconds * 1000) {
+    return cached.value;
+  }
+
+  try {
+    const value = calendarApiGetJson_(url);
+    const entry = { value: value, fetchedAt: Date.now() };
+    const encoded = JSON.stringify(entry);
+    cache.put(cacheKey, encoded, ttlSeconds);
+    properties.setProperty(dataKey, JSON.stringify(value));
+    properties.setProperty(timeKey, String(entry.fetchedAt));
+    return value;
+  } catch (error) {
+    logColorMetadataFailure_(failureKind);
+    return cached && cached.value ? cached.value : null;
+  }
+}
+
+function calendarApiGetJson_(url) {
+  const token = ScriptApp.getOAuthToken();
+  const response = UrlFetchApp.fetch(url, {
+    method: 'get',
+    muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+  });
+  const status = response.getResponseCode();
+  if (status < 200 || status >= 300) throw new Error('Calendar API returned ' + status);
+  return JSON.parse(response.getContentText());
+}
+
+function safeJsonParse_(text) {
+  if (!text) return null;
+  try { return JSON.parse(text); } catch (error) { return null; }
+}
+
+function cacheHash_(value) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value));
+  return Utilities.base64EncodeWebSafe(bytes).replace(/=+$/g, '');
+}
+
+function logColorMetadataFailure_(kind) {
+  Logger.log('Calendar color metadata unavailable (%s); using cached or calendar fallback.', kind);
 }
 
 function myStatus_(ev) {

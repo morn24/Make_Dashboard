@@ -39,6 +39,7 @@ Google 캘린더 ──(10분마다, Apps Script)──▶ dashboard-data/data/c
 6. 왼쪽 `<>` 편집기로 돌아가서 `appsscript.json` 내용을 이 저장소의
    [`integrations/google-calendar/appsscript.json`](../integrations/google-calendar/appsscript.json) 으로 바꾸기 → 💾 저장
    (캘린더 권한을 "읽기 전용"으로 제한하는 설정입니다)
+7. ⚙ 프로젝트 설정의 Google Cloud 프로젝트 링크를 열고 **Google Calendar API**를 사용 설정합니다. 이 스크립트는 Advanced Google Services 대신 `UrlFetchApp`으로 Calendar API의 읽기 전용 REST 경로를 호출합니다. 매니페스트에는 Calendar 읽기와 외부 요청 범위가 선언되어 있습니다.
 
 ## 3) 설치 실행
 
@@ -63,6 +64,19 @@ Google 캘린더 ──(10분마다, Apps Script)──▶ dashboard-data/data/c
 | `intervalMinutes` | 확인 주기. 1, 5, 10, 15, 30 중 하나. 바꾼 뒤에는 `setup`을 한 번 더 실행 |
 
 Google 캘린더 앱에서 **숨긴 캘린더**는 자동으로 빠집니다.
+
+## 일정별 색상 동기화
+
+레이아웃·색상 개선판의 [`Code.gs`](../integrations/google-calendar/Code.gs)는 일정의 기존 JSON `color` 필드에 Google에서 읽은 HEX 색상을 저장합니다. 색상 우선순위는 일정 라벨 색, 개별 일정의 색, 레거시 CalendarApp 색 ID의 Google 색상표 HEX, 캘린더 기본 색, 중립 회색 순입니다. 캘린더 API 호출은 `GET`만 사용하며 Google 캘린더를 수정하지 않습니다. GitHub의 `calendar.json`은 색을 포함한 일정 데이터가 바뀐 경우에만 갱신합니다.
+
+기존 Apps Script 프로젝트를 업데이트하려면 이 저장소의 새 `Code.gs` 전체를 붙여 넣어 저장하고, 연결된 Google Cloud 프로젝트에서 Google Calendar API가 켜져 있는지 확인합니다. 새 권한 동의가 표시되면 캘린더 읽기와 외부 요청만 허용합니다. 색상 캐시를 무시해 즉시 다시 확인하려면 함수 선택 칸에서 **`refreshCalendarColors`**를 실행합니다. 이후 10분 트리거는 `syncCalendar`를 계속 실행하며, 색상표와 라벨은 캐시 만료 뒤 다시 읽힙니다.
+
+| 증상 | 해결 |
+|---|---|
+| `Calendar API returned 403` 또는 `accessNotConfigured` | Apps Script 프로젝트 설정에서 연결된 Google Cloud 프로젝트를 열어 Google Calendar API를 사용 설정하고 `refreshCalendarColors`를 다시 실행 |
+| 권한 오류 또는 401 | `appsscript.json`의 `calendar.readonly`, `script.external_request` 범위를 확인하고 함수 실행 시 권한을 다시 승인 |
+| Google 일정 색을 바꿨지만 대시보드에 옛 색이 남음 | `refreshCalendarColors`를 직접 실행해 색상표·라벨 캐시를 건너뛴 다음 웹앱/위젯을 새로고침 |
+| 색상 메타데이터 요청 실패 | 일정 목록은 유지되고 캐시 또는 캘린더 기본 색/중립색으로 표시됩니다. 실행 로그에는 개인정보와 토큰 없이 실패 종류만 남습니다. |
 
 ## 문제 해결
 

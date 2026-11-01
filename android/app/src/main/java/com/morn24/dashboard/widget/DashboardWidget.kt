@@ -4,17 +4,14 @@ package com.morn24.dashboard.widget
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.toColorInt
 import androidx.core.net.toUri
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
-import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
@@ -30,6 +27,7 @@ import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.LinearProgressIndicator
 import androidx.glance.background
+import androidx.glance.appwidget.cornerRadius
 import androidx.glance.color.ColorProviders
 import androidx.glance.color.DynamicThemeColorProviders
 import androidx.glance.color.colorProviders
@@ -58,6 +56,7 @@ import com.morn24.dashboard.data.DefaultDashboardRepositoryFactory
 import com.morn24.dashboard.data.TokenCipher
 import com.morn24.dashboard.data.WidgetAppearance
 import com.morn24.dashboard.data.WidgetConnectionState
+import com.morn24.dashboard.data.WidgetColorResolver
 import com.morn24.dashboard.domain.CalendarOccurrence
 import com.morn24.dashboard.domain.CalendarRules
 import com.morn24.dashboard.domain.Project
@@ -73,8 +72,10 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 data class WidgetLayoutPlan(
+    val columns: Int,
     val small: Boolean,
     val medium: Boolean,
+    val narrowTall: Boolean,
     val todoRows: Int,
     val eventRows: Int,
     val projectRows: Int,
@@ -82,25 +83,23 @@ data class WidgetLayoutPlan(
 
 object WidgetLayoutPlanner {
     fun plan(size: DpSize, fontScalePercent: Int): WidgetLayoutPlan {
-        val small = size.width < 200.dp && size.height < 220.dp
-        val medium = !small && size.height < 220.dp
+        val small = size.width < 200.dp && size.height < 300.dp
+        val medium = size.width >= 200.dp && size.height < 300.dp
+        val narrowTall = size.width < 200.dp && size.height >= 300.dp
         val largeText = fontScalePercent >= 130
         return when {
-            small -> WidgetLayoutPlan(true, false, 1, 0, 0)
-            medium -> WidgetLayoutPlan(false, true, 1, 0, if (largeText) 0 else 1)
-            else -> WidgetLayoutPlan(false, false, if (largeText) 2 else 3, if (largeText) 3 else 5, if (largeText) 2 else 4)
+            small -> WidgetLayoutPlan(columns = 1, small = true, medium = false, narrowTall = false, todoRows = 1, eventRows = 0, projectRows = 0)
+            medium -> WidgetLayoutPlan(columns = 2, small = false, medium = true, narrowTall = false, todoRows = 1, eventRows = 1, projectRows = 1)
+            narrowTall -> WidgetLayoutPlan(columns = 1, small = false, medium = false, narrowTall = true, todoRows = 2, eventRows = 2, projectRows = 2)
+            else -> WidgetLayoutPlan(columns = 2, small = false, medium = false, narrowTall = false, todoRows = 1, eventRows = if (largeText) 1 else 4, projectRows = 1)
         }
     }
 }
 
 class DashboardWidget : GlanceAppWidget() {
-    override val sizeMode = SizeMode.Responsive(
-        setOf(
-            DpSize(140.dp, 140.dp),
-            DpSize(300.dp, 140.dp),
-            DpSize(300.dp, 300.dp),
-        ),
-    )
+    // Exact gives Samsung and other launchers' actual resized dimensions to LocalSize.
+    // Fixed responsive buckets can collapse a wide/tall widget back to the minimum bucket.
+    override val sizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val store = DashboardStore.from(context)
@@ -115,7 +114,6 @@ class DashboardWidget : GlanceAppWidget() {
         provideContent {
             val snapshot by snapshotFlow.collectAsState(initial)
             val size = LocalSize.current
-            val context = LocalContext.current
             val webAction = actionStartActivity(Intent(Intent.ACTION_VIEW, snapshot.webUrl.toUri()))
             val plan = WidgetLayoutPlanner.plan(size, snapshot.appearance.fontScalePercent)
             androidx.glance.GlanceTheme(colors = appearanceColors(snapshot.appearance)) {
@@ -133,7 +131,6 @@ private fun WidgetContent(
     webAction: androidx.glance.action.Action,
     widgetId: Int,
 ) {
-    val context = LocalContext.current
     val today = LocalDate.now()
     val now = Instant.now()
     val zone = ZoneId.systemDefault()
@@ -148,156 +145,340 @@ private fun WidgetContent(
     val activeProjects = ProjectRules.active(snapshot.projects)
     val projects = activeProjects.take(plan.projectRows)
     val allTodayEvents = CalendarRules.occurringToday(snapshot.calendarEvents, today, zone)
-    val events = allTodayEvents.take(plan.eventRows)
-    val hiddenEvents = (allTodayEvents.size - events.size).coerceAtLeast(0)
-    val nextTimed = if (snapshot.calendarAvailable) CalendarRules.nextTimed(snapshot.calendarEvents, today, zone, now) else null
     val undo = snapshot.undo?.takeIf { it.completedDate == todayText }
     val pendingUndo = snapshot.pendingUndoTodoId
-
-    val margin = if (plan.small) 8.dp else 10.dp
-    LazyColumn(
-        modifier = GlanceModifier
-            .fillMaxSize()
-            .background(glanceColor(backgroundArgb(appearance)))
-            .clickable(webAction)
-            .padding(margin),
-    ) {
-        item(itemId = stableId("header")) {
-            Header(snapshot, today, plan.small, appearance, widgetId)
-        }
-        item(itemId = stableId("sync-status")) {
-            SyncStatus(snapshot, appearance)
-        }
-        if (snapshot.connectionState != WidgetConnectionState.READY) {
-            item(itemId = stableId("connection")) { ConnectionRequired(snapshot, appearance) }
-        } else {
-            item(itemId = stableId("summary")) {
-                Summary(snapshot, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, appearance)
-            }
-            if (undo != null) {
-                item(itemId = stableId("undo")) {
+    val eventRowLimit = if (undo != null && plan.columns > 1) 1 else plan.eventRows
+    val events = allTodayEvents.take(eventRowLimit)
+    val hiddenEvents = (allTodayEvents.size - events.size).coerceAtLeast(0)
+    val nextTimed = if (snapshot.calendarAvailable) CalendarRules.nextTimed(snapshot.calendarEvents, today, zone, now) else null
+    val denseEventPreview = !plan.small && !plan.medium && undo == null && eventRowLimit >= 4
+    val rootModifier = GlanceModifier.fillMaxSize()
+        .background(glanceColor(backgroundArgb(appearance)))
+        .clickable(webAction)
+    when {
+        plan.small || plan.narrowTall -> LazyColumn(modifier = rootModifier.padding(if (plan.small) 8.dp else 10.dp)) {
+            item(itemId = stableId("header")) { Header(snapshot, today, plan.small, appearance, widgetId) }
+            item(itemId = stableId("sync-status")) { SyncStatus(snapshot, appearance) }
+            if (snapshot.connectionState != WidgetConnectionState.READY) {
+                item(itemId = stableId("connection")) { ConnectionRequired(snapshot, appearance) }
+            } else {
+                item(itemId = stableId("summary")) {
+                    Summary(snapshot, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, appearance)
+                }
+                if (undo != null) item(itemId = stableId("undo")) {
                     UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance)
                 }
-            }
-
-            if (plan.small || plan.medium) {
-                val compactLargeText = plan.medium && appearance.fontScalePercent >= 130
-                if (!compactLargeText) {
-                    item(itemId = stableId("next-event")) { NextEventSummary(snapshot, nextTimed, today, zone, appearance) }
-                }
                 if (plan.small) {
-                    item(itemId = stableId("small-todo-label")) {
-                        SectionLabel("오늘 할 일 ${todoSummary.doneCount}/${todoSummary.visibleCount}", appearance)
+                    item(itemId = stableId("next-event")) { NextEventSummary(snapshot, nextTimed, today, zone, appearance) }
+                    item(itemId = stableId("small-todo-panel")) {
+                        TodoPanel(
+                            todos = shownTodos,
+                            total = actionableTodos.size,
+                            hidden = hiddenTodos,
+                            today = todayText,
+                            pendingTodoIds = snapshot.pendingTodoIds,
+                            appearance = appearance,
+                            webAction = webAction,
+                            compact = true,
+                        )
                     }
-                    if (actionableTodos.isEmpty()) {
-                        item(itemId = stableId("small-todo-empty")) {
-                            Text(
-                                if (todoSummary.visibleCount == 0) "등록된 할 일이 없어요" else "오늘 할 일을 모두 마쳤어요",
-                                style = bodyStyle(appearance, 10),
-                            )
-                        }
-                    } else {
-                        items(shownTodos, itemId = { stableId("todo:${it.id}") }) { todo ->
-                            TodoToggleRow(todo, todayText, snapshot.pendingTodoIds, appearance)
-                        }
-                    }
-                    if (hiddenTodos > 0) item(itemId = stableId("small-todo-more")) {
-                        MoreAction("할 일 +${hiddenTodos}개 · 전체 보기", webAction, appearance)
-                    }
-                }
-                if (plan.medium) {
-                    if (!compactLargeText) {
-                        item(itemId = stableId("all-day")) {
-                            val allDayCount = allTodayEvents.count(CalendarOccurrence::allDay)
-                            if (allDayCount > 0) Text("종일 일정 ${allDayCount}개", style = bodyStyle(appearance, 11, variant = true))
-                        }
-                    }
-                    if (plan.projectRows > 0) {
-                        item(itemId = stableId("top-project")) {
-                            if (activeProjects.isEmpty()) {
-                                Text("진행 중 프로젝트 없음", style = bodyStyle(appearance, 11))
-                            } else {
-                                val project = activeProjects.first()
-                                Text("${project.name} · 다음 · ${ProjectRules.nextTask(project) ?: "다음 과제 없음"}", maxLines = 2, style = bodyStyle(appearance, 11))
-                            }
-                        }
-                    }
-                    if (actionableTodos.isNotEmpty()) {
-                        if (!compactLargeText) {
-                            item(itemId = stableId("medium-todo-label")) { SectionLabel("할 일 ${shownTodos.size}/${actionableTodos.size}", appearance) }
-                        }
-                        items(shownTodos, itemId = { stableId("todo:${it.id}") }) { todo ->
-                            TodoToggleRow(todo, todayText, snapshot.pendingTodoIds, appearance)
-                        }
-                    }
-                    if (hiddenTodos > 0) item(itemId = stableId("medium-todo-more")) {
-                        MoreAction("할 일 +${hiddenTodos}개 · 전체 보기", webAction, appearance)
-                    }
-                }
-            } else {
-                item(itemId = stableId("todo-label")) {
-                    SectionLabel("오늘 할 일 ${shownTodos.size}/${actionableTodos.size}", appearance)
-                }
-                if (actionableTodos.isEmpty()) {
-                    item(itemId = stableId("todo-empty")) {
-                        val message = when {
-                            todoSummary.visibleCount == 0 -> "등록된 할 일이 없어요 · 웹에서 추가"
-                            todoSummary.doneCount == todoSummary.visibleCount -> "오늘 할 일을 모두 마쳤어요"
-                            else -> "남은 할 일이 없어요"
-                        }
-                        Text(message, style = bodyStyle(appearance, 11))
-                    }
+                    item(itemId = stableId("small-all")) { MoreAction("전체 보기", webAction, appearance) }
                 } else {
-                    items(shownTodos, itemId = { stableId("todo:${it.id}") }) { todo ->
-                        TodoToggleRow(todo, todayText, snapshot.pendingTodoIds, appearance)
+                    item(itemId = stableId("tall-todo-panel")) {
+                        TodoPanel(shownTodos, actionableTodos.size, hiddenTodos, todayText, snapshot.pendingTodoIds, appearance, webAction)
                     }
-                }
-                if (hiddenTodos > 0) item(itemId = stableId("todo-more")) {
-                    MoreAction("할 일 +${hiddenTodos}개 · 전체 보기", webAction, appearance)
-                }
-
-                item(itemId = stableId("calendar-label")) {
-                    SectionLabel("오늘 일정 ${events.size}/${allTodayEvents.size}", appearance)
-                }
-                if (!snapshot.calendarAvailable) {
-                    item(itemId = stableId("calendar-unavailable")) {
-                        Text("캘린더 연결 안 됨", style = bodyStyle(appearance, 11, variant = true))
+                    item(itemId = stableId("tall-calendar-panel")) {
+                        SchedulePanel(events, allTodayEvents.size, hiddenEvents, snapshot.calendarAvailable, now, zone, today, appearance, webAction)
                     }
-                } else if (events.isEmpty()) {
-                    item(itemId = stableId("calendar-empty")) {
-                        Text("오늘 일정 없음", style = bodyStyle(appearance, 11))
+                    item(itemId = stableId("tall-project-panel")) {
+                        ProjectPanel(projects, activeProjects.size, appearance, webAction)
                     }
-                } else {
-                    items(events, itemId = { stableId("event:${it.event.id}") }) { occurrence ->
-                        EventLine(occurrence, now, zone, today, appearance)
-                    }
-                }
-                if (hiddenEvents > 0) item(itemId = stableId("event-more")) {
-                    MoreAction("일정 +${hiddenEvents}개 · 전체 보기", webAction, appearance)
-                }
-
-                item(itemId = stableId("project-label")) { SectionLabel("진행 중 프로젝트 ${projects.size}/${activeProjects.size}", appearance) }
-                if (activeProjects.isEmpty()) {
-                    item(itemId = stableId("project-empty")) { Text("진행 중 프로젝트 없음", style = bodyStyle(appearance, 11)) }
-                } else {
-                    items(projects, itemId = { stableId("project:${it.id}") }) { project -> ProjectLine(project, appearance) }
-                }
-                val hiddenProjects = (activeProjects.size - projects.size).coerceAtLeast(0)
-                if (hiddenProjects > 0) item(itemId = stableId("project-more")) {
-                    MoreAction("프로젝트 +${hiddenProjects}개 · 전체 보기", webAction, appearance)
-                }
-                item(itemId = stableId("next-event-detail")) { NextEventSummary(snapshot, nextTimed, today, zone, appearance) }
-            }
-
-            item(itemId = stableId("actions")) {
-                Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    MoreAction("전체 보기", webAction, appearance, modifier = GlanceModifier.defaultWeight())
-                    if (!plan.small) {
-                        MoreAction("설정", actionRunCallback<OpenWidgetSettingsAction>(), appearance, modifier = GlanceModifier.width(64.dp))
+                    item(itemId = stableId("tall-next-event")) { NextEventSummary(snapshot, nextTimed, today, zone, appearance) }
+                    item(itemId = stableId("tall-actions")) {
+                        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            MoreAction("전체 보기", webAction, appearance, modifier = GlanceModifier.defaultWeight())
+                            MoreAction("설정", actionRunCallback<OpenWidgetSettingsAction>(), appearance, modifier = GlanceModifier.width(64.dp))
+                        }
                     }
                 }
             }
         }
+        plan.medium -> Column(modifier = rootModifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
+            CompactHeader(snapshot, today, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, undo, pendingUndo, appearance)
+            if (hasCompactStatus(snapshot)) SyncStatus(snapshot, appearance, compact = true)
+            if (snapshot.connectionState != WidgetConnectionState.READY) {
+                ConnectionRequired(snapshot, appearance)
+            } else {
+                Row(modifier = GlanceModifier.fillMaxWidth().defaultWeight(), verticalAlignment = Alignment.Top) {
+                    TodoPanel(
+                        todos = shownTodos,
+                        total = actionableTodos.size,
+                        hidden = hiddenTodos,
+                        today = todayText,
+                        pendingTodoIds = snapshot.pendingTodoIds,
+                        appearance = appearance,
+                        webAction = webAction,
+                        compact = true,
+                        modifier = GlanceModifier.defaultWeight(),
+                    )
+                    Spacer(GlanceModifier.width(5.dp))
+                    Column(modifier = GlanceModifier.defaultWeight()) {
+                        SchedulePanel(
+                            events = events,
+                            total = allTodayEvents.size,
+                            hidden = hiddenEvents,
+                            available = snapshot.calendarAvailable,
+                            now = now,
+                            zone = zone,
+                            today = today,
+                            appearance = appearance,
+                            webAction = webAction,
+                            compact = true,
+                            modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                        )
+                        Spacer(GlanceModifier.height(4.dp))
+                        ProjectPanel(
+                            projects = activeProjects.take(plan.projectRows),
+                            total = activeProjects.size,
+                            appearance = appearance,
+                            webAction = webAction,
+                            compact = true,
+                            modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                        )
+                    }
+                }
+            }
+        }
+        else -> Column(modifier = rootModifier.padding(8.dp)) {
+            Header(snapshot, today, small = false, appearance = appearance, widgetId = widgetId)
+            if (snapshot.connectionState != WidgetConnectionState.READY) {
+                ConnectionRequired(snapshot, appearance)
+            } else {
+                if (hasCompactStatus(snapshot)) SyncStatus(snapshot, appearance, compact = true)
+                Summary(snapshot, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, appearance)
+                if (undo != null) UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance)
+                Row(modifier = GlanceModifier.fillMaxWidth().defaultWeight(), verticalAlignment = Alignment.Top) {
+                    Column(modifier = GlanceModifier.defaultWeight()) {
+                        TodoPanel(
+                            todos = shownTodos,
+                            total = actionableTodos.size,
+                            hidden = hiddenTodos,
+                            today = todayText,
+                            pendingTodoIds = snapshot.pendingTodoIds,
+                            appearance = appearance,
+                            webAction = webAction,
+                            compact = denseEventPreview,
+                            modifier = if (denseEventPreview) GlanceModifier.fillMaxWidth().height(78.dp)
+                                else GlanceModifier.fillMaxWidth().defaultWeight(),
+                        )
+                        Spacer(GlanceModifier.height(6.dp))
+                        SchedulePanel(
+                            events = events,
+                            total = allTodayEvents.size,
+                            hidden = hiddenEvents,
+                            available = snapshot.calendarAvailable,
+                            now = now,
+                            zone = zone,
+                            today = today,
+                            appearance = appearance,
+                            webAction = webAction,
+                            compact = denseEventPreview,
+                            modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                        )
+                    }
+                    Spacer(GlanceModifier.width(8.dp))
+                    ProjectPanel(
+                        projects = projects,
+                        total = activeProjects.size,
+                        appearance = appearance,
+                        webAction = webAction,
+                        modifier = GlanceModifier.defaultWeight(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun CompactHeader(
+    snapshot: DashboardSnapshot,
+    today: LocalDate,
+    done: Int,
+    total: Int,
+    activeProjects: Int,
+    undo: com.morn24.dashboard.data.CompletedTodoUndo?,
+    pendingUndo: String?,
+    appearance: WidgetAppearance,
+) {
+    Row(modifier = GlanceModifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = GlanceModifier.defaultWeight()) {
+            Text(
+                today.format(DateTimeFormatter.ofPattern("M월 d일 (E)", Locale.KOREAN)),
+                maxLines = 1,
+                style = TextStyle(fontSize = 13.scaledSp(appearance), fontWeight = FontWeight.Bold, color = primaryTextColor(appearance)),
+            )
+            Text(
+                "할 일 $done/$total · 프로젝트 ${activeProjects}개 · ${syncLabel(snapshot)}",
+                maxLines = 1,
+                style = bodyStyle(appearance, 8, variant = true),
+            )
+        }
+        if (undo != null) UndoButton(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance)
+        Box(
+            modifier = GlanceModifier.size(48.dp).clickable(actionRunCallback<RefreshWidgetAction>())
+                .semantics { contentDescription = "새로고침, 데이터를 다시 불러옵니다" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("↻", style = TextStyle(fontSize = 21.scaledSp(appearance), fontWeight = FontWeight.Bold, color = primaryTextColor(appearance)))
+        }
+        if (snapshot.connectionState == WidgetConnectionState.READY) {
+            Box(
+                modifier = GlanceModifier.size(48.dp).clickable(actionRunCallback<OpenWidgetSettingsAction>())
+                    .semantics { contentDescription = "이 위젯 꾸미기 설정 열기" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("⚙", style = TextStyle(fontSize = 17.scaledSp(appearance), color = primaryTextColor(appearance)))
+            }
+        }
+    }
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun UndoButton(title: String, pending: Boolean, recordId: String, appearance: WidgetAppearance) {
+    val modifier = GlanceModifier.size(48.dp)
+        .thenIf(!pending) {
+            clickable(actionRunCallback<UndoTodoAction>(parameters = actionParametersOf(UndoTodoAction.KEY_RECORD_ID.to(recordId))))
+        }
+        .semantics { contentDescription = if (pending) "완료 취소를 저장 중입니다" else "$title 완료 실행 취소" }
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Text(if (pending) "…" else "↶", style = TextStyle(fontSize = 21.scaledSp(appearance), color = appearanceAccent(appearance)))
+    }
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun TodoPanel(
+    todos: List<Todo>,
+    total: Int,
+    hidden: Int,
+    today: String,
+    pendingTodoIds: Set<String>,
+    appearance: WidgetAppearance,
+    webAction: androidx.glance.action.Action,
+    compact: Boolean = false,
+    modifier: GlanceModifier = GlanceModifier.fillMaxWidth(),
+) {
+    val colors = WidgetColorResolver.resolve(appearance)
+    Column(
+        modifier = sectionPanelModifier(modifier, SectionTone.TODO, appearance, webAction, "오늘 할 일 전체 보기"),
+    ) {
+        PanelRule(SectionTone.TODO, appearance)
+        Spacer(GlanceModifier.height(if (compact) 1.dp else 3.dp))
+        SectionLabel("할 일 ${todos.size}/$total${if (hidden > 0) " · +$hidden" else ""}", appearance, SectionTone.TODO)
+        if (todos.isEmpty()) {
+            Text("오늘 할 일이 없어요", maxLines = 2, style = bodyStyle(appearance, if (compact) 9 else 10))
+        } else {
+            todos.forEach { todo -> TodoToggleRow(todo, today, pendingTodoIds, appearance) }
+        }
+        if (hidden > 0) Text("+${hidden}개 더보기", maxLines = 1, style = bodyStyle(appearance, 9, accent = true, roleColor = colors.todo))
+    }
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun SchedulePanel(
+    events: List<CalendarOccurrence>,
+    total: Int,
+    hidden: Int,
+    available: Boolean,
+    now: Instant,
+    zone: ZoneId,
+    today: LocalDate,
+    appearance: WidgetAppearance,
+    webAction: androidx.glance.action.Action,
+    compact: Boolean = false,
+    modifier: GlanceModifier = GlanceModifier.fillMaxWidth(),
+) {
+    val colors = WidgetColorResolver.resolve(appearance)
+    Column(
+        modifier = sectionPanelModifier(modifier, SectionTone.SCHEDULE, appearance, webAction, "오늘 일정 전체 보기"),
+    ) {
+        PanelRule(SectionTone.SCHEDULE, appearance)
+        Spacer(GlanceModifier.height(1.dp))
+        SectionLabel("오늘 일정 ${events.size}/$total${if (hidden > 0) " · +$hidden" else ""}", appearance, SectionTone.SCHEDULE)
+        when {
+            !available -> Text("캘린더 연결 안 됨", maxLines = 1, style = bodyStyle(appearance, 9, variant = true))
+            events.isEmpty() -> Text("오늘 일정 없음", maxLines = 1, style = bodyStyle(appearance, 9))
+            else -> events.forEach { EventLine(it, now, zone, today, appearance, compact = compact) }
+        }
+        if (hidden > 0) Text("+${hidden}개 더보기", maxLines = 1, style = bodyStyle(appearance, 9, accent = true, roleColor = colors.schedule))
+    }
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun ProjectPanel(
+    projects: List<Project>,
+    total: Int,
+    appearance: WidgetAppearance,
+    webAction: androidx.glance.action.Action,
+    compact: Boolean = false,
+    modifier: GlanceModifier = GlanceModifier.fillMaxWidth(),
+) {
+    val colors = WidgetColorResolver.resolve(appearance)
+    val hidden = (total - projects.size).coerceAtLeast(0)
+    Column(
+        modifier = sectionPanelModifier(modifier, SectionTone.PROJECT, appearance, webAction, "진행 중 프로젝트 전체 보기"),
+    ) {
+        PanelRule(SectionTone.PROJECT, appearance)
+        Spacer(GlanceModifier.height(if (compact) 1.dp else 3.dp))
+        SectionLabel("프로젝트 ${projects.size}/$total${if (hidden > 0) " · +$hidden" else ""}", appearance, SectionTone.PROJECT)
+        if (projects.isEmpty()) {
+            Text("진행 중 프로젝트 없음", maxLines = 2, style = bodyStyle(appearance, 9))
+        } else {
+            projects.forEach { project -> ProjectLine(project, appearance, compact) }
+        }
+        if (hidden > 0) Text("+${hidden}개 더보기", maxLines = 1, style = bodyStyle(appearance, 9, accent = true, roleColor = colors.project))
+    }
+}
+
+private enum class SectionTone { TODO, SCHEDULE, PROJECT }
+
+private fun sectionPanelModifier(
+    modifier: GlanceModifier,
+    tone: SectionTone,
+    appearance: WidgetAppearance,
+    webAction: androidx.glance.action.Action,
+    description: String,
+): GlanceModifier {
+    val colors = WidgetColorResolver.resolve(appearance)
+    val surface = when (tone) {
+        SectionTone.TODO -> colors.todoSurface
+        SectionTone.SCHEDULE -> colors.scheduleSurface
+        SectionTone.PROJECT -> colors.projectSurface
+    }
+    val alpha = appearance.backgroundOpacityPercent * 255 / 100
+    return modifier.background(glanceColor(WidgetColorResolver.withAlpha(surface, alpha)))
+        .cornerRadius(9.dp)
+        .clickable(webAction)
+        .semantics { contentDescription = "$description, 웹앱 열기" }
+        .padding(8.dp)
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun PanelRule(tone: SectionTone, appearance: WidgetAppearance) {
+    if (appearance.backgroundOpacityPercent == 0) {
+        val colors = WidgetColorResolver.resolve(appearance)
+        val roleColor = when (tone) {
+            SectionTone.TODO -> colors.todo
+            SectionTone.SCHEDULE -> colors.schedule
+            SectionTone.PROJECT -> colors.project
+        }
+        Spacer(GlanceModifier.fillMaxWidth().height(1.dp).background(glanceColor(WidgetColorResolver.withAlpha(roleColor, 0x66))))
     }
 }
 
@@ -340,7 +521,7 @@ private fun Header(snapshot: DashboardSnapshot, today: LocalDate, small: Boolean
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
-private fun SyncStatus(snapshot: DashboardSnapshot, appearance: WidgetAppearance) {
+private fun SyncStatus(snapshot: DashboardSnapshot, appearance: WidgetAppearance, compact: Boolean = false) {
     val missing = snapshot.fileStatuses.filter { it.notFoundAtMillis != null }
     val stale = snapshot.fileStatuses.filter { it.error != null }
     when {
@@ -350,8 +531,8 @@ private fun SyncStatus(snapshot: DashboardSnapshot, appearance: WidgetAppearance
             style = bodyStyle(appearance, 10, variant = true),
         )
         snapshot.errors.isNotEmpty() || snapshot.lastSyncHadErrors || stale.isNotEmpty() -> Text(
-            "⚠ 일부 갱신 실패 · 이전 내용 표시 · 앱에서 상세 확인",
-            maxLines = 2,
+            if (compact) "⚠ 일부 갱신 실패 · 저장된 내용 표시" else "⚠ 일부 갱신 실패 · 이전 내용 표시 · 앱에서 상세 확인",
+            maxLines = if (compact) 1 else 2,
             style = bodyStyle(appearance, 10, error = true),
         )
         missing.any { it.file != com.morn24.dashboard.data.DashboardFile.CALENDAR } -> Text(
@@ -367,6 +548,10 @@ private fun SyncStatus(snapshot: DashboardSnapshot, appearance: WidgetAppearance
         else -> Unit
     }
 }
+
+private fun hasCompactStatus(snapshot: DashboardSnapshot): Boolean =
+    snapshot.syncInProgress || snapshot.errors.isNotEmpty() || snapshot.lastSyncHadErrors ||
+        snapshot.fileStatuses.any { it.error != null || (it.notFoundAtMillis != null && it.file != com.morn24.dashboard.data.DashboardFile.CALENDAR) }
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
@@ -407,20 +592,43 @@ private fun NextEventSummary(
     appearance: WidgetAppearance,
 ) {
     Column(modifier = GlanceModifier.fillMaxWidth()) {
-        Text("다음 시간 일정", style = bodyStyle(appearance, 10, bold = true, variant = true))
+        SectionLabel("다음 시간 일정", appearance, SectionTone.SCHEDULE)
         val label = when {
             !snapshot.calendarAvailable -> "캘린더 연결 안 됨"
             next == null -> "남은 시간 일정 없음"
             else -> "${timeLabel(next, zone, today)} ${next.event.title}"
         }
-        Text(label, maxLines = 2, style = bodyStyle(appearance, 12, bold = next?.let { CalendarRules.isInProgress(it, Instant.now()) } == true))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = GlanceModifier.fillMaxWidth().height(32.dp)) {
+            if (next != null) {
+                Box(
+                    modifier = GlanceModifier.size(8.dp)
+                        .background(glanceColor(WidgetColorResolver.eventColor(next.event.color)))
+                        .cornerRadius(4.dp)
+                        .semantics { contentDescription = "" },
+                ) {}
+                Spacer(GlanceModifier.width(6.dp))
+            }
+            Text(
+                label,
+                maxLines = 2,
+                modifier = GlanceModifier.defaultWeight(),
+                style = bodyStyle(appearance, 11, bold = next?.let { CalendarRules.isInProgress(it, Instant.now()) } == true),
+            )
+        }
     }
 }
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
-private fun SectionLabel(label: String, appearance: WidgetAppearance) {
-    Text(label, maxLines = 1, style = bodyStyle(appearance, 11, bold = true, variant = true))
+private fun SectionLabel(label: String, appearance: WidgetAppearance, tone: SectionTone? = null) {
+    val colors = WidgetColorResolver.resolve(appearance)
+    val role = when (tone) {
+        SectionTone.TODO -> colors.todo
+        SectionTone.SCHEDULE -> colors.schedule
+        SectionTone.PROJECT -> colors.project
+        null -> null
+    }
+    Text(label, maxLines = 1, style = bodyStyle(appearance, 10, bold = true, roleColor = role))
 }
 
 @androidx.glance.GlanceComposable
@@ -501,31 +709,50 @@ private fun MoreAction(
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
-private fun EventLine(occurrence: CalendarOccurrence, now: Instant, zone: ZoneId, today: LocalDate, appearance: WidgetAppearance) {
+private fun EventLine(
+    occurrence: CalendarOccurrence,
+    now: Instant,
+    zone: ZoneId,
+    today: LocalDate,
+    appearance: WidgetAppearance,
+    compact: Boolean = false,
+) {
     val ended = CalendarRules.hasEnded(occurrence, now)
     val inProgress = CalendarRules.isInProgress(occurrence, now)
-    Text(
-        "${timeLabel(occurrence, zone, today)} ${occurrence.event.title}",
-        maxLines = 2,
-        modifier = GlanceModifier.fillMaxWidth().padding(vertical = 3.dp)
-            .semantics { contentDescription = "${occurrence.event.title}, ${if (inProgress) "진행 중" else if (ended) "종료" else "예정"}" },
-        style = bodyStyle(appearance, 10, bold = inProgress, variant = ended),
-    )
+    Row(
+        modifier = GlanceModifier.fillMaxWidth().height(if (compact) 22.dp else 36.dp)
+            .semantics { contentDescription = "${timeLabel(occurrence, zone, today)} ${occurrence.event.title}, ${if (inProgress) "진행 중" else if (ended) "종료" else "예정"}" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = GlanceModifier.size(8.dp)
+                .background(glanceColor(WidgetColorResolver.eventColor(occurrence.event.color)))
+                .cornerRadius(4.dp),
+        ) {}
+        Spacer(GlanceModifier.width(6.dp))
+        Text(
+            "${timeLabel(occurrence, zone, today)} ${occurrence.event.title}",
+            maxLines = if (compact) 1 else 2,
+            modifier = GlanceModifier.defaultWeight(),
+            style = bodyStyle(appearance, if (compact) 9 else 10, bold = inProgress, variant = ended),
+        )
+    }
 }
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
-private fun ProjectLine(project: Project, appearance: WidgetAppearance) {
-    Column(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(project.name, maxLines = 1, style = bodyStyle(appearance, 11, bold = true))
-        Text("진행률 ${project.progress}%", style = bodyStyle(appearance, 9, variant = true))
+private fun ProjectLine(project: Project, appearance: WidgetAppearance, compact: Boolean = false) {
+    val colors = WidgetColorResolver.resolve(appearance)
+    Column(modifier = GlanceModifier.fillMaxWidth().padding(vertical = if (compact) 1.dp else 3.dp)) {
+        Text(project.name, maxLines = 1, style = bodyStyle(appearance, if (compact) 9 else 11, bold = true, roleColor = colors.project))
+        if (!compact) Text("진행률 ${project.progress}%", style = bodyStyle(appearance, 9, variant = true))
         LinearProgressIndicator(
             progress = project.progress / 100f,
-            modifier = GlanceModifier.fillMaxWidth().height(4.dp)
+            modifier = GlanceModifier.fillMaxWidth().height(if (compact) 3.dp else 4.dp)
                 .semantics { contentDescription = "${project.name} 진행률 ${project.progress}%" },
-            color = appearanceAccent(appearance),
+            color = glanceColor(colors.progress),
         )
-        Text("다음 · ${ProjectRules.nextTask(project) ?: "다음 과제 없음"}", maxLines = 2, style = bodyStyle(appearance, 10, variant = true))
+        if (!compact) Text("다음 · ${ProjectRules.nextTask(project) ?: "다음 과제 없음"}", maxLines = 2, style = bodyStyle(appearance, 9, variant = true))
     }
 }
 
@@ -585,13 +812,15 @@ private fun bodyStyle(
     variant: Boolean = false,
     error: Boolean = false,
     accent: Boolean = false,
+    roleColor: Int? = null,
 ) = TextStyle(
     fontSize = size.scaledSp(appearance),
     fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
     color = when {
         error -> errorTextColor(appearance)
+        roleColor != null -> glanceColor(roleColor)
         accent -> appearanceAccent(appearance)
-        variant && appearance.colorMode != AppearanceColorMode.AUTOMATIC -> glanceColor(contrastText(appearance).let { if (it == Color.WHITE) Color.LTGRAY else Color.DKGRAY })
+        variant && appearance.colorMode != AppearanceColorMode.AUTOMATIC -> glanceColor(WidgetColorResolver.resolve(appearance).secondaryText)
         appearance.colorMode == AppearanceColorMode.AUTOMATIC -> if (variant) androidx.glance.GlanceTheme.colors.onSurfaceVariant else androidx.glance.GlanceTheme.colors.onSurface
         else -> glanceColor(contrastText(appearance))
     },
@@ -599,34 +828,34 @@ private fun bodyStyle(
 
 private fun appearanceColors(appearance: WidgetAppearance): ColorProviders {
     if (appearance.colorMode == AppearanceColorMode.AUTOMATIC) return DynamicThemeColorProviders
+    val colors = WidgetColorResolver.resolve(appearance)
     val foreground = contrastText(appearance)
     val background = baseBackground(appearance)
-    val accent = baseAccent(appearance)
+    val accent = colors.action
     val alphaBackground = backgroundArgb(appearance)
-    val secondary = if (foreground == Color.WHITE) Color.LTGRAY else Color.DKGRAY
     return colorProviders(
         primary = glanceColor(accent),
         onPrimary = glanceColor(foreground),
         primaryContainer = glanceColor(withAlpha(accent, 0x33)),
         onPrimaryContainer = glanceColor(foreground),
-        secondary = glanceColor(accent),
+        secondary = glanceColor(colors.schedule),
         onSecondary = glanceColor(foreground),
-        secondaryContainer = glanceColor(withAlpha(accent, 0x22)),
+        secondaryContainer = glanceColor(withAlpha(colors.schedule, 0x22)),
         onSecondaryContainer = glanceColor(foreground),
-        tertiary = glanceColor(accent),
+        tertiary = glanceColor(colors.project),
         onTertiary = glanceColor(foreground),
-        tertiaryContainer = glanceColor(withAlpha(accent, 0x22)),
+        tertiaryContainer = glanceColor(withAlpha(colors.project, 0x22)),
         onTertiaryContainer = glanceColor(foreground),
-        error = glanceColor(Color.rgb(0xB3, 0x26, 0x1E)),
-        errorContainer = glanceColor(Color.rgb(0xF9, 0xDE, 0xDC)),
-        onError = glanceColor(Color.WHITE),
-        onErrorContainer = glanceColor(Color.rgb(0x41, 0x1E, 0x1B)),
+        error = glanceColor(colors.error),
+        errorContainer = glanceColor(WidgetColorResolver.mix(colors.error, background, 0.12)),
+        onError = glanceColor(0xFFFFFFFF.toInt()),
+        onErrorContainer = glanceColor(foreground),
         background = glanceColor(alphaBackground),
         onBackground = glanceColor(foreground),
         surface = glanceColor(alphaBackground),
         onSurface = glanceColor(foreground),
-        surfaceVariant = glanceColor(withAlpha(background, if (appearance.contrastAssist) 0xD9 else 0x88)),
-        onSurfaceVariant = glanceColor(secondary),
+        surfaceVariant = glanceColor(withAlpha(colors.scheduleSurface, appearance.backgroundOpacityPercent * 255 / 100)),
+        onSurfaceVariant = glanceColor(colors.secondaryText),
         outline = glanceColor(withAlpha(foreground, 0x55)),
         inverseOnSurface = glanceColor(background),
         inverseSurface = glanceColor(foreground),
@@ -637,7 +866,7 @@ private fun appearanceColors(appearance: WidgetAppearance): ColorProviders {
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
 private fun appearanceAccent(appearance: WidgetAppearance): ColorProvider =
-    if (appearance.colorMode == AppearanceColorMode.AUTOMATIC) androidx.glance.GlanceTheme.colors.primary else glanceColor(baseAccent(appearance))
+    glanceColor(WidgetColorResolver.resolve(appearance).action)
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
@@ -645,42 +874,18 @@ private fun primaryTextColor(appearance: WidgetAppearance): ColorProvider =
     if (appearance.colorMode == AppearanceColorMode.AUTOMATIC) androidx.glance.GlanceTheme.colors.onSurface else glanceColor(contrastText(appearance))
 
 private fun errorTextColor(appearance: WidgetAppearance): ColorProvider =
-    if (contrastText(appearance) == Color.WHITE) glanceColor(Color.rgb(0xFF, 0xB4, 0xAB)) else glanceColor(Color.rgb(0xB3, 0x26, 0x1E))
+    glanceColor(WidgetColorResolver.resolve(appearance).error)
 
 private fun glanceColor(color: Int): ColorProvider = ColorProvider(androidx.compose.ui.graphics.Color(color))
 
 private fun backgroundArgb(appearance: WidgetAppearance): Int =
-    withAlpha(baseBackground(appearance), (appearance.backgroundOpacityPercent * 255 / 100))
+    withAlpha(baseBackground(appearance), appearance.backgroundOpacityPercent * 255 / 100)
 
-private fun baseBackground(appearance: WidgetAppearance): Int = when (appearance.colorMode) {
-    AppearanceColorMode.AUTOMATIC -> Color.WHITE
-    AppearanceColorMode.LIGHT -> Color.rgb(0xFF, 0xF8, 0xF2)
-    AppearanceColorMode.DARK -> Color.rgb(0x17, 0x1A, 0x17)
-    AppearanceColorMode.OCEAN -> Color.rgb(0xE9, 0xF3, 0xFC)
-    AppearanceColorMode.FOREST -> Color.rgb(0xED, 0xF4, 0xE9)
-    AppearanceColorMode.CUSTOM -> runCatching { appearance.backgroundHex.toColorInt() }.getOrDefault(Color.WHITE)
-}
+private fun baseBackground(appearance: WidgetAppearance): Int = WidgetColorResolver.resolve(appearance).background
 
-private fun baseAccent(appearance: WidgetAppearance): Int = when (appearance.colorMode) {
-    AppearanceColorMode.AUTOMATIC -> Color.rgb(0x00, 0x6C, 0x4C)
-    AppearanceColorMode.LIGHT -> Color.rgb(0x00, 0x6C, 0x4C)
-    AppearanceColorMode.DARK -> Color.rgb(0x91, 0xD5, 0xB3)
-    AppearanceColorMode.OCEAN -> Color.rgb(0x20, 0x56, 0xA0)
-    AppearanceColorMode.FOREST -> Color.rgb(0x35, 0x62, 0x3B)
-    AppearanceColorMode.CUSTOM -> runCatching { appearance.accentHex.toColorInt() }.getOrDefault(Color.rgb(0x00, 0x6C, 0x4C))
-}
+private fun contrastText(appearance: WidgetAppearance): Int = WidgetColorResolver.resolve(appearance).foreground
 
-private fun contrastText(appearance: WidgetAppearance): Int {
-    val color = baseBackground(appearance)
-    val r = Color.red(color) / 255.0
-    val g = Color.green(color) / 255.0
-    val b = Color.blue(color) / 255.0
-    fun channel(value: Double) = if (value <= 0.04045) value / 12.92 else Math.pow((value + 0.055) / 1.055, 2.4)
-    val luminance = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
-    return if (luminance > 0.45) Color.rgb(0x19, 0x1B, 0x19) else Color.WHITE
-}
-
-private fun withAlpha(color: Int, alpha: Int): Int = (color and 0x00FFFFFF) or (alpha.coerceIn(0, 255) shl 24)
+private fun withAlpha(color: Int, alpha: Int): Int = WidgetColorResolver.withAlpha(color, alpha)
 
 internal fun stableId(value: String): Long =
     value.fold(0xcbf29ce484222325UL.toLong()) { hash, char -> (hash xor char.code.toLong()) * 0x100000001b3L } and Long.MAX_VALUE

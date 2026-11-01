@@ -1,6 +1,6 @@
 # Dashboard Android 위젯 설치·확인 안내
 
-이 안내는 Android Studio로 직접 빌드하거나, debug APK를 Galaxy S25에 설치해 설정하는 방법입니다. 개선판은 `com.morn24.dashboard` 앱의 1.1 버전이며, GitHub 비공개 저장소의 `todos.json`, `projects.json`, `calendar.json`을 읽고 할 일 체크만 `todos.json`에 저장합니다. 에뮬레이터 검증과 APK 정보는 [개선판 검증 기록](android-ux-verification.md)을 참고하세요.
+이 안내는 Android Studio로 직접 빌드하거나 debug APK를 Android 폰에 설치해 설정하는 방법입니다. 레이아웃·색상 개선판은 `com.morn24.dashboard` 앱 1.4 (`versionCode 5`)이며, GitHub 비공개 저장소의 `todos.json`, `projects.json`, `calendar.json`을 읽고 할 일 체크만 `todos.json`에 저장합니다. [기존 개선판 검증](android-ux-verification.md)과 [이번 레이아웃·색상 검증](android-layout-colors-verification.md)을 구분해 참고하세요.
 
 ## 1. 설치
 
@@ -9,11 +9,11 @@
 1. Android Studio를 설치하고 이 저장소의 `android/` 폴더를 엽니다.
 2. Gradle Sync가 끝나면 폰에서 **설정 → 휴대전화 정보 → 소프트웨어 정보 → 빌드번호**를 7회 탭해 개발자 옵션을 켭니다.
 3. **설정 → 개발자 옵션 → USB 디버깅**을 켜고 USB로 PC에 연결합니다. 폰에 뜨는 디버깅 허용 창에서 이 PC를 허용합니다.
-4. Android Studio 상단 기기 선택에서 Galaxy S25를 고른 뒤 **Run ▶**을 누릅니다.
+4. Android Studio 상단 기기 선택에서 연결된 디버깅용 Android 폰을 고른 뒤 **Run ▶**을 누릅니다. 이번 레이아웃·색상 검증은 연결된 Galaxy S20에서 했으며, Galaxy S25 확인은 별도 사용자 항목으로 남아 있습니다.
 
 ### 빌드된 APK 설치
 
-개선판 debug APK는 [`android/app/build/outputs/apk/debug/Dashboard-ux-debug.apk`](../android/app/build/outputs/apk/debug/Dashboard-ux-debug.apk)입니다. USB·클라우드 드라이브 등으로 폰에 옮겨 파일 앱에서 열고 설치합니다. 기존 앱을 업데이트할 때는 앱을 삭제하지 말고 이 APK를 그대로 설치하세요. 같은 앱 서명 키를 쓰면 연결 설정·캐시·위젯별 모양을 유지한 채 업데이트됩니다. 폰에서 출처를 알 수 없는 앱 설치를 요청하면 APK를 연 파일 앱에 한해 설치를 허용한 뒤 설치 후 다시 끌 수 있습니다. 이 파일은 debug 빌드입니다. APK를 다시 빌드하려면 프로젝트 루트의 `android/`에서 Windows는 `gradlew.bat assembleDebug`, macOS/Linux는 `./gradlew assembleDebug`를 실행합니다.
+레이아웃·색상 개선판 debug APK는 [`android/app/build/outputs/apk/debug/Dashboard-layout-colors-debug.apk`](../android/app/build/outputs/apk/debug/Dashboard-layout-colors-debug.apk)입니다. `app-debug.apk`와 내용이 같은 복사본입니다. USB·클라우드 드라이브 등으로 폰에 옮겨 파일 앱에서 열거나, USB 디버깅이 허용된 기기에서 `adb install -r Dashboard-layout-colors-debug.apk`로 설치합니다. 기존 앱을 업데이트할 때는 앱을 삭제하거나 데이터를 지우지 마세요. 같은 앱 서명 키의 APK를 덮어 설치하면 연결 설정·암호화 토큰·캐시·위젯별 모양을 유지합니다. 폰에서 출처를 알 수 없는 앱 설치를 요청하면 APK를 연 파일 앱에 한해 설치를 허용한 뒤 설치 후 다시 끌 수 있습니다. 이 파일은 debug 빌드입니다. APK를 다시 빌드하려면 프로젝트 루트의 `android/`에서 Windows는 `gradlew.bat assembleDebug`, macOS/Linux는 `./gradlew assembleDebug`를 실행합니다.
 
 ## 2. GitHub 연결
 
@@ -54,7 +54,7 @@ WorkManager는 Android 절전 상태에서 지연될 수 있습니다. 정기 �
 
 ## 6. 확인 결과 전달
 
-초기판 테스트와 APK 빌드는 `docs/android-verification.md`, 개선판 자동·에뮬레이터 검증과 화면 캡처는 `docs/android-ux-verification.md`에 기록했습니다. Galaxy S25에서 확인을 마친 뒤 다음 항목을 알려 주면 남은 수동 검증과 `PLAN.md` 표시를 갱신할 수 있습니다.
+초기판 빌드는 `docs/android-verification.md`, 이전 개선판은 `docs/android-ux-verification.md`, 이번 APK·실기기 렌더는 `docs/android-layout-colors-verification.md`에 기록했습니다. 연결 디버깅 기기 확인 결과와 S25에서 추가로 확인할 항목을 구분해 두었습니다.
 
 - 작은·중간·큰 위젯의 화면과 다크 모드 표시
 - 위젯 체크 → 웹앱 반영, 웹앱 변경 → 위젯 새로고침 반영

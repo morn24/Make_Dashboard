@@ -16,35 +16,48 @@ class WidgetLayoutPlannerTest {
 
     @Test
     fun smallWidgetKeepsOneActionableTodoAtEveryFontSize() {
-        val standard = WidgetLayoutPlanner.plan(DpSize(140.dp, 140.dp), 100)
-        val largeText = WidgetLayoutPlanner.plan(DpSize(140.dp, 140.dp), 150)
+        val standard = WidgetLayoutPlanner.plan(DpSize(170.dp, 240.dp), 100)
+        val largeText = WidgetLayoutPlanner.plan(DpSize(170.dp, 240.dp), 150)
 
         assertTrue(standard.small)
+        assertEquals(1, standard.columns)
         assertEquals(1, standard.todoRows)
         assertEquals(1, largeText.todoRows)
     }
 
     @Test
     fun wideShortWidgetKeepsOneActionableTodoAtEveryFontSize() {
-        val standard = WidgetLayoutPlanner.plan(DpSize(300.dp, 140.dp), 100)
-        val largeText = WidgetLayoutPlanner.plan(DpSize(300.dp, 140.dp), 140)
+        val standard = WidgetLayoutPlanner.plan(DpSize(260.dp, 240.dp), 100)
+        val largeText = WidgetLayoutPlanner.plan(DpSize(260.dp, 240.dp), 140)
 
         assertTrue(standard.medium)
+        assertEquals(2, standard.columns)
         assertEquals(1, standard.todoRows)
         assertEquals(1, largeText.todoRows)
-        assertEquals(0, largeText.projectRows)
+        assertEquals(1, largeText.projectRows)
     }
 
     @Test
-    fun tallWidgetUsesScrollForMoreSectionsAndReducesDensityForLargeText() {
-        val standard = WidgetLayoutPlanner.plan(DpSize(300.dp, 300.dp), 100)
-        val largeText = WidgetLayoutPlanner.plan(DpSize(300.dp, 300.dp), 140)
+    fun tallWidgetPlansTwoColumnsAndKeepsAllThreePanelsForLargeText() {
+        val standard = WidgetLayoutPlanner.plan(DpSize(260.dp, 490.dp), 100)
+        val largeText = WidgetLayoutPlanner.plan(DpSize(260.dp, 490.dp), 140)
 
-        assertEquals(3, standard.todoRows)
-        assertEquals(5, standard.eventRows)
-        assertEquals(4, standard.projectRows)
-        assertEquals(2, largeText.todoRows)
-        assertEquals(3, largeText.eventRows)
-        assertEquals(2, largeText.projectRows)
+        assertEquals(2, standard.columns)
+        assertEquals(1, standard.todoRows)
+        assertEquals(4, standard.eventRows)
+        assertEquals(1, standard.projectRows)
+        assertEquals(1, largeText.todoRows)
+        assertEquals(1, largeText.eventRows)
+        assertEquals(1, largeText.projectRows)
+    }
+
+    @Test
+    fun tallNarrowWidgetKeepsTheSingleColumnFallback() {
+        val plan = WidgetLayoutPlanner.plan(DpSize(170.dp, 490.dp), 100)
+
+        assertTrue(plan.narrowTall)
+        assertEquals(1, plan.columns)
+        assertTrue(plan.eventRows > 0)
+        assertTrue(plan.projectRows > 0)
     }
 }

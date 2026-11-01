@@ -71,6 +71,7 @@ enum class AppearanceColorMode { AUTOMATIC, LIGHT, DARK, OCEAN, FOREST, CUSTOM }
 @Serializable
 data class WidgetAppearance(
     val colorMode: AppearanceColorMode = AppearanceColorMode.AUTOMATIC,
+    val accentPaletteId: String = "mint-blue-lavender",
     val backgroundHex: String = "#FFF8F2",
     val accentHex: String = "#006C4C",
     val fontScalePercent: Int = 100,
@@ -78,6 +79,8 @@ data class WidgetAppearance(
     val contrastAssist: Boolean = true,
 ) {
     fun sanitized(): WidgetAppearance = copy(
+        accentPaletteId = accentPaletteId.takeIf { id -> WidgetColorResolver.palettes.any { it.id == id } }
+            ?: WidgetColorResolver.palettes.first().id,
         fontScalePercent = fontScalePercent.coerceIn(80, 150).let { (it / 10) * 10 },
         backgroundOpacityPercent = backgroundOpacityPercent.coerceIn(0, 100).let { (it / 5) * 5 },
         backgroundHex = backgroundHex.takeIf(HEX_COLOR::matches) ?: DEFAULT.backgroundHex,

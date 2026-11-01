@@ -12,6 +12,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,9 +23,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -40,6 +44,7 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -58,7 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -70,7 +75,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.core.graphics.toColorInt
 import androidx.core.net.toUri
 import androidx.glance.appwidget.updateAll
 import com.morn24.dashboard.data.AndroidKeystoreAesKeyProvider
@@ -82,6 +86,7 @@ import com.morn24.dashboard.data.DefaultDashboardRepositoryFactory
 import com.morn24.dashboard.data.FileSyncStatus
 import com.morn24.dashboard.data.TokenCipher
 import com.morn24.dashboard.data.WidgetAppearance
+import com.morn24.dashboard.data.WidgetColorResolver
 import com.morn24.dashboard.widget.DashboardWidget
 import com.morn24.dashboard.widget.DashboardWidgetReceiver
 import com.morn24.dashboard.work.DashboardWorkScheduler
@@ -383,7 +388,7 @@ private fun AppearancePage(state: SettingsUiState, viewModel: SettingsViewModel)
         }
     }
 
-    Text("색상", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+    Text("배경 모드", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
     val modes = listOf(
         AppearanceColorMode.AUTOMATIC to "자동",
         AppearanceColorMode.LIGHT to "밝음",
@@ -401,6 +406,21 @@ private fun AppearancePage(state: SettingsUiState, viewModel: SettingsViewModel)
                     label = { Text(label) },
                 )
             }
+        }
+    }
+    Text("강조색 조합", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+    Text("배경 모드와 별도로 선택합니다. 어두운 배경은 그대로 유지됩니다.", style = MaterialTheme.typography.bodySmall)
+    WidgetColorResolver.palettes.chunked(2).forEach { row ->
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            row.forEach { palette ->
+                FilterChip(
+                    selected = state.draftAppearance.accentPaletteId == palette.id,
+                    onClick = { viewModel.updateDraft { copy(accentPaletteId = palette.id) } },
+                    label = { Text(palette.name, maxLines = 1) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (row.size == 1) Spacer(Modifier.weight(1f))
         }
     }
     if (state.draftAppearance.colorMode == AppearanceColorMode.CUSTOM) {
@@ -467,21 +487,93 @@ private fun AppearancePage(state: SettingsUiState, viewModel: SettingsViewModel)
 
 @Composable
 private fun AppearancePreview(appearance: WidgetAppearance) {
-    val background = previewBackground(appearance)
-    val foreground = if (background.luminance() > 0.45f) Color(0xFF191B19) else Color.White
-    val accent = previewAccent(appearance)
+    val colors = WidgetColorResolver.resolve(
+        appearance,
+        automaticBackground = MaterialTheme.colorScheme.surface.toArgb(),
+        automaticAccent = MaterialTheme.colorScheme.primary.toArgb(),
+    )
+    val background = Color(colors.background)
+    val foreground = Color(colors.foreground)
     val opacity = appearance.backgroundOpacityPercent / 100f
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = background.copy(alpha = opacity)),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("10월 31일 (토) · 확인 09:41", color = foreground, fontSize = (12 * appearance.fontScalePercent / 100f).sp, fontWeight = FontWeight.Bold)
-            Text("할 일 2/5 · 진행 중 프로젝트 3개", color = foreground, fontSize = (13 * appearance.fontScalePercent / 100f).sp)
-            LinearProgressIndicator(progress = { 0.4f }, color = accent, modifier = Modifier.fillMaxWidth())
-            Text("다음 시간 일정 · 10:30 팀 회의", color = foreground, fontSize = (12 * appearance.fontScalePercent / 100f).sp)
-            Text("□ 기획안 정리  ·  ☑ 저장 중", color = foreground, fontSize = (11 * appearance.fontScalePercent / 100f).sp)
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("오늘 진행 2/5 · 다음 일정 10:30", color = foreground, fontSize = (12 * appearance.fontScalePercent / 100f).sp, fontWeight = FontWeight.SemiBold)
+            LinearProgressIndicator(progress = { 0.4f }, color = Color(colors.progress), modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                PreviewSection(
+                    title = "할 일",
+                    body = "□ 기획안 정리",
+                    background = Color(colors.todoSurface),
+                    role = Color(colors.todo),
+                    foreground = foreground,
+                    opacity = opacity,
+                    modifier = Modifier.weight(1f),
+                )
+                PreviewSection(
+                    title = "오늘 일정",
+                    body = "10:30 팀 회의",
+                    background = Color(colors.scheduleSurface),
+                    role = Color(colors.schedule),
+                    foreground = foreground,
+                    opacity = opacity,
+                    showEventDot = true,
+                    modifier = Modifier.weight(1f),
+                )
+                PreviewSection(
+                    title = "프로젝트",
+                    body = "72% 진행",
+                    background = Color(colors.projectSurface),
+                    role = Color(colors.project),
+                    foreground = foreground,
+                    opacity = opacity,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Surface(
+                color = Color(colors.action).copy(alpha = if (opacity == 0f) 0.16f else 0.20f),
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Text(
+                    "✓ 완료  ·  실행 취소",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    color = Color(colors.action),
+                    fontSize = (10 * appearance.fontScalePercent / 100f).sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviewSection(
+    title: String,
+    body: String,
+    background: Color,
+    role: Color,
+    foreground: Color,
+    opacity: Float,
+    modifier: Modifier = Modifier,
+    showEventDot: Boolean = false,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(8.dp),
+        color = background.copy(alpha = opacity),
+        border = if (opacity == 0f) androidx.compose.foundation.BorderStroke(1.dp, role.copy(alpha = 0.45f)) else null,
+    ) {
+        Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, maxLines = 1, color = role, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (showEventDot) androidx.compose.foundation.layout.Box(
+                    Modifier.size(7.dp).background(Color(0xFFE53935), CircleShape),
+                )
+                Text(body, maxLines = 2, color = foreground, fontSize = 9.sp)
+            }
         }
     }
 }
@@ -583,26 +675,6 @@ private fun addWidget(context: Context) {
 private fun widgetIds(context: Context): List<Int> = runCatching {
     AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, DashboardWidgetReceiver::class.java)).toList()
 }.getOrDefault(emptyList())
-
-@Composable
-private fun previewBackground(appearance: WidgetAppearance): Color = when (appearance.colorMode) {
-    AppearanceColorMode.AUTOMATIC -> MaterialTheme.colorScheme.surface
-    AppearanceColorMode.LIGHT -> Color(0xFFFFF8F2)
-    AppearanceColorMode.DARK -> Color(0xFF171A17)
-    AppearanceColorMode.OCEAN -> Color(0xFFE9F3FC)
-    AppearanceColorMode.FOREST -> Color(0xFFEDF4E9)
-    AppearanceColorMode.CUSTOM -> runCatching { Color(appearance.backgroundHex.toColorInt()) }.getOrDefault(Color.White)
-}
-
-@Composable
-private fun previewAccent(appearance: WidgetAppearance): Color = when (appearance.colorMode) {
-    AppearanceColorMode.AUTOMATIC -> MaterialTheme.colorScheme.primary
-    AppearanceColorMode.LIGHT -> Color(0xFF006C4C)
-    AppearanceColorMode.DARK -> Color(0xFF91D5B3)
-    AppearanceColorMode.OCEAN -> Color(0xFF2056A0)
-    AppearanceColorMode.FOREST -> Color(0xFF35623B)
-    AppearanceColorMode.CUSTOM -> runCatching { Color(appearance.accentHex.toColorInt()) }.getOrDefault(Color(0xFF006C4C))
-}
 
 private fun formatStatusTime(epochMillis: Long): String =
     Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.KOREAN))
