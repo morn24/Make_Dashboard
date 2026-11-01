@@ -64,6 +64,33 @@ object WidgetColorResolver {
             progress = rgb(0xDB, 0xB8, 0x79),
             action = rgb(0xF4, 0xCF, 0x8E),
         ),
+        WidgetAccentPalette(
+            id = "coral-red-sage-cream",
+            name = "코랄 레드 · 세이지 · 크림",
+            todo = rgb(0xF4, 0x9A, 0x91),
+            schedule = rgb(0xA4, 0xD5, 0xC1),
+            project = rgb(0xF2, 0xD8, 0xA5),
+            progress = rgb(0xEE, 0x79, 0x70),
+            action = rgb(0xF4, 0x9A, 0x91),
+        ),
+        WidgetAccentPalette(
+            id = "apricot-orange-blue-mint",
+            name = "살구 오렌지 · 블루 · 민트",
+            todo = rgb(0xFF, 0xBC, 0x80),
+            schedule = rgb(0xAD, 0xC9, 0xF2),
+            project = rgb(0xB5, 0xDD, 0xC6),
+            progress = rgb(0xF3, 0xA0, 0x52),
+            action = rgb(0xFF, 0xBC, 0x80),
+        ),
+        WidgetAccentPalette(
+            id = "butter-yellow-sky-plum",
+            name = "버터 옐로 · 스카이 · 플럼",
+            todo = rgb(0xF5, 0xDE, 0x7B),
+            schedule = rgb(0xA4, 0xCE, 0xE9),
+            project = rgb(0xD7, 0xB8, 0xDE),
+            progress = rgb(0xE4, 0xC4, 0x46),
+            action = rgb(0xF5, 0xDE, 0x7B),
+        ),
     )
 
     fun resolve(
@@ -90,18 +117,29 @@ object WidgetColorResolver {
         }
         val palette = palettes.firstOrNull { it.id == safe.accentPaletteId } ?: palettes.first()
         val isDark = luminance(background) <= 0.45
+        val isWarmPalette = palette.id in WARM_PALETTE_IDS
         val foreground = if (isDark) rgb(0xFF, 0xFF, 0xFF) else rgb(0x19, 0x1B, 0x19)
         val secondaryText = if (isDark) rgb(0xD0, 0xD4, 0xD0) else rgb(0x50, 0x54, 0x50)
-        val blendTowardPalette = 0.45
-        val todo = mix(legacyAccent, palette.todo, blendTowardPalette)
-        val schedule = mix(legacyAccent, palette.schedule, 0.22)
-        val project = mix(legacyAccent, palette.project, 0.22)
-        val action = mix(legacyAccent, palette.action, blendTowardPalette)
-        val progress = mix(legacyAccent, palette.progress, blendTowardPalette)
+        val todoTint = if (isWarmPalette) palette.todo else mix(legacyAccent, palette.todo, 0.45)
+        val scheduleTint = if (isWarmPalette) palette.schedule else mix(legacyAccent, palette.schedule, 0.22)
+        val projectTint = if (isWarmPalette) palette.project else mix(legacyAccent, palette.project, 0.22)
+        val todo = if (isWarmPalette) readableAccent(palette.todo, background) else todoTint
+        val schedule = if (isWarmPalette) readableAccent(palette.schedule, background) else scheduleTint
+        val project = if (isWarmPalette) readableAccent(palette.project, background) else projectTint
+        val action = if (isWarmPalette) {
+            readableAccent(mix(legacyAccent, palette.action, if (safe.colorMode == AppearanceColorMode.CUSTOM) 0.82 else 1.0), background)
+        } else {
+            mix(legacyAccent, palette.action, 0.45)
+        }
+        val progress = if (isWarmPalette) {
+            readableAccent(mix(legacyAccent, palette.progress, if (safe.colorMode == AppearanceColorMode.CUSTOM) 0.82 else 1.0), background)
+        } else {
+            mix(legacyAccent, palette.progress, 0.45)
+        }
         val panelMix = if (safe.contrastAssist) 0.15 else 0.09
-        val todoSurface = mix(background, todo, panelMix)
-        val scheduleSurface = mix(background, schedule, panelMix)
-        val projectSurface = mix(background, project, panelMix)
+        val todoSurface = mix(background, todoTint, panelMix)
+        val scheduleSurface = mix(background, scheduleTint, panelMix)
+        val projectSurface = mix(background, projectTint, panelMix)
 
         return ResolvedWidgetColors(
             background = background,
@@ -143,8 +181,29 @@ object WidgetColorResolver {
         return 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
     }
 
+    private fun readableAccent(color: Int, background: Int): Int {
+        if (contrastRatio(color, background) >= 4.5) return color
+        val target = if (luminance(background) > 0.45) rgb(0x10, 0x10, 0x10) else rgb(0xFF, 0xFF, 0xFF)
+        for (step in 1..20) {
+            val candidate = mix(color, target, step / 20.0)
+            if (contrastRatio(candidate, background) >= 4.5) return candidate
+        }
+        return target
+    }
+
+    private fun contrastRatio(first: Int, second: Int): Double {
+        val brighter = maxOf(luminance(first), luminance(second))
+        val darker = minOf(luminance(first), luminance(second))
+        return (brighter + 0.05) / (darker + 0.05)
+    }
+
     private fun rgb(red: Int, green: Int, blue: Int): Int =
         (0xFF shl 24) or (red shl 16) or (green shl 8) or blue
 
     private val HEX = Regex("^#[0-9A-Fa-f]{6}$")
+    private val WARM_PALETTE_IDS = setOf(
+        "coral-red-sage-cream",
+        "apricot-orange-blue-mint",
+        "butter-yellow-sky-plum",
+    )
 }

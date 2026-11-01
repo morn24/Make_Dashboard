@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,6 +49,9 @@ class DebugWidgetSeedActivity : ComponentActivity() {
         "sky-amber-purple" to "스카이",
         "lavender-mint-peach" to "라벤더",
         "amber-sky-mauve" to "앰버",
+        "coral-red-sage-cream" to "코랄 레드",
+        "apricot-orange-blue-mint" to "살구 오렌지",
+        "butter-yellow-sky-plum" to "버터 옐로",
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,7 +60,7 @@ class DebugWidgetSeedActivity : ComponentActivity() {
             MaterialTheme {
                 var message by remember { mutableStateOf("익명 fixture 데이터만 이 디버깅 기기에 저장합니다.") }
                 Column(
-                    modifier = Modifier.fillMaxSize().padding(20.dp),
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text("위젯 렌더 검증", style = MaterialTheme.typography.headlineSmall)
@@ -70,11 +75,11 @@ class DebugWidgetSeedActivity : ComponentActivity() {
                                         withUndo = false,
                                         withError = false,
                                     )
-                                }.getOrElse { "fixture를 저장하지 못했어요: ${it.javaClass.simpleName}" }
+                                }.getOrElse { "fixture를 저장하지 못했어요: ${it.message ?: it.javaClass.simpleName}" }
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("익명 일정 색상 fixture 저장") }
+                    ) { Text("할 일·일정·프로젝트 20개 fixture 저장") }
 
                     Text("같은 어두운 배경 · 강조색 조합")
                     palettes.chunked(2).forEach { row ->
@@ -142,6 +147,8 @@ class DebugWidgetSeedActivity : ComponentActivity() {
         withUndo: Boolean,
         withError: Boolean,
     ): String = withContext(Dispatchers.IO) {
+        var stage = "fixture 구성"
+        try {
         val store = DashboardStore.from(this@DebugWidgetSeedActivity)
         val now = Instant.now()
         val nowMillis = now.toEpochMilli()
@@ -151,44 +158,67 @@ class DebugWidgetSeedActivity : ComponentActivity() {
         val formatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
         val firstEventStart = ZonedDateTime.of(today, java.time.LocalTime.of(9, 30), zone)
         val colors = listOf("#E53935", "#1E88E5", "#43A047", "#4986E7")
-        val titles = listOf("예시 빨강 일정", "예시 파랑 일정", "예시 초록 일정", "캘린더 기본색 일정")
-        val events = titles.indices.joinToString(",") { index ->
+        stage = "20개 일정 fixture 생성"
+        val events = (1..20).joinToString(",") { number ->
+            val index = number - 1
+            val suffix = number.toString().padStart(2, '0')
+            val color = colors[index % colors.size]
             val start = firstEventStart.plusMinutes(index * 45L)
             val end = start.plusMinutes(30)
-            val colorField = "\"color\":\"${colors[index]}\","
-            """{"id":"fixture-event-$index","title":"${titles[index]}","calendar":"익명 예시",$colorField"allDay":false,"start":"${start.format(formatter)}","end":"${end.format(formatter)}"}"""
+            val colorField = "\"color\":\"$color\","
+            """{"id":"fixture-event-$suffix","title":"일정 EVT-$suffix","calendar":"익명 fixture",$colorField"allDay":false,"start":"${start.format(formatter)}","end":"${end.format(formatter)}"}"""
         }
-        val todosJson = """{"version":1,"updatedAt":"$now","items":[{"id":"fixture-todo-1","title":"주간 계획 정리","repeat":"daily","doneOn":null},{"id":"fixture-todo-2","title":"자료 검토","repeat":"daily","doneOn":"$day"},{"id":"fixture-todo-3","title":"화면 흐름 점검","repeat":"daily","doneOn":null},{"id":"fixture-todo-4","title":"검증 결과 기록","repeat":"daily","doneOn":null}]}"""
-        val projectsJson = """{"version":1,"updatedAt":"$now","projects":[{"id":"fixture-project","name":"예시 프로젝트","status":"active","progress":72,"current":"익명 렌더 fixture","next":["큰 글씨로 보기","홈 화면에서 확인"],"summary":"화면 검증용 예시 데이터"},{"id":"fixture-project-2","name":"두 번째 예시","status":"active","progress":38,"current":"색상 역할 확인","next":["다음 단계 확인"]}]}"""
+        stage = "20개 할 일 fixture 생성"
+        val todoItems = (1..20).joinToString(",") { number ->
+            val suffix = number.toString().padStart(2, '0')
+            """{"id":"fixture-todo-$suffix","title":"할 일 TODO-$suffix","repeat":"daily","doneOn":null}"""
+        }
+        val todosJson = """{"version":1,"updatedAt":"$now","items":[$todoItems]}"""
+        stage = "20개 프로젝트 fixture 생성"
+        val projectItems = (1..20).joinToString(",") { number ->
+            val suffix = number.toString().padStart(2, '0')
+            val progress = (number * 7) % 101
+            """{"id":"fixture-project-$suffix","name":"프로젝트 PRJ-$suffix","status":"active","progress":$progress,"current":"익명 목록 fixture","next":["fixture step $suffix"]}"""
+        }
+        val projectsJson = """{"version":1,"updatedAt":"$now","projects":[$projectItems]}"""
+        stage = "공유 calendar.json fixture 생성"
         val calendarJson = """{"version":1,"updatedAt":"$now","timeZone":"${zone.id}","rangeStart":"$day","rangeEnd":"${today.plusDays(7)}","events":[$events]}"""
 
+        stage = "익명 연결 설정 저장"
         val generation = store.saveSettings(
             DashboardSettings(
                 encryptedToken = TokenCipher(AndroidKeystoreAesKeyProvider()).encrypt("debug-invalid-${System.currentTimeMillis()}"),
             ),
         )
+        stage = "표시 모양 저장"
         store.saveAppearance(appearance)
         widgetIds().forEach { store.saveAppearance(appearance, it) }
+        stage = "할 일 fixture 저장"
         store.saveSuccessfulFile(DashboardFile.TODOS, todosJson, "fixture-todos", nowMillis)
+        stage = "프로젝트 fixture 저장"
         store.saveSuccessfulFile(DashboardFile.PROJECTS, projectsJson, "fixture-projects", nowMillis)
+        stage = "일정 fixture 저장"
         store.saveSuccessfulFile(DashboardFile.CALENDAR, calendarJson, "fixture-calendar", nowMillis)
 
         if (withUndo) {
             val pending = PendingTodoToggle(
                 operationId = "fixture-undo-op",
-                todoId = "fixture-todo-1",
+                todoId = "fixture-todo-01",
                 targetDoneOn = day,
                 tappedDate = day,
                 expectedGeneration = generation,
                 createdAtMillis = nowMillis,
-                title = "주간 계획 정리",
+                title = "할 일 TODO-01",
             )
             check(store.enqueuePendingToggle(pending))
-            val completedTodos = todosJson.replace("\"id\":\"fixture-todo-1\",\"title\":\"주간 계획 정리\",\"repeat\":\"daily\",\"doneOn\":null", "\"id\":\"fixture-todo-1\",\"title\":\"주간 계획 정리\",\"repeat\":\"daily\",\"doneOn\":\"$day\"")
+            val completedTodos = todosJson.replace(
+                "\"id\":\"fixture-todo-01\",\"title\":\"할 일 TODO-01\",\"repeat\":\"daily\",\"doneOn\":null",
+                "\"id\":\"fixture-todo-01\",\"title\":\"할 일 TODO-01\",\"repeat\":\"daily\",\"doneOn\":\"$day\"",
+            )
             val undo = CompletedTodoUndo(
                 recordId = "fixture-undo",
-                todoId = "fixture-todo-1",
-                title = "주간 계획 정리",
+                todoId = "fixture-todo-01",
+                title = "할 일 TODO-01",
                 originalDoneOn = null,
                 completedDoneOn = day,
                 completedDate = day,
@@ -202,11 +232,18 @@ class DebugWidgetSeedActivity : ComponentActivity() {
             store.recordSyncResultIfGeneration(nowMillis, hadErrors = true, expectedGeneration = generation)
         }
 
+        stage = "런처 위젯 고정 요청"
         val manager = AppWidgetManager.getInstance(this@DebugWidgetSeedActivity)
         val component = ComponentName(this@DebugWidgetSeedActivity, DashboardWidgetReceiver::class.java)
         val added = manager.isRequestPinAppWidgetSupported && manager.requestPinAppWidget(component, null, null)
+        stage = "기존 위젯 다시 그리기"
         DashboardWidget().updateAll(this@DebugWidgetSeedActivity)
         if (added) "익명 fixture를 저장했어요. 런처에서 위젯 추가 확인을 마치면 표시됩니다." else "익명 fixture를 저장하고 기존 Glance 위젯을 갱신했어요. 홈 화면에서 Dashboard를 추가하세요."
+        } catch (error: Exception) {
+            val origin = error.stackTrace.firstOrNull()
+            val location = origin?.let { " · ${it.className.substringAfterLast('.')}#${it.methodName}:${it.lineNumber}" }.orEmpty()
+            throw IllegalStateException("$stage · ${error.javaClass.simpleName}$location", error)
+        }
     }
 
     private fun widgetIds(): List<Int> = runCatching {
@@ -218,5 +255,8 @@ private fun WidgetAppearancePaletteName(id: String): String = when (id) {
     "sky-amber-purple" -> "스카이"
     "lavender-mint-peach" -> "라벤더"
     "amber-sky-mauve" -> "앰버"
+        "coral-red-sage-cream" -> "코랄 레드"
+        "apricot-orange-blue-mint" -> "살구 오렌지"
+        "butter-yellow-sky-plum" -> "버터 옐로"
     else -> "민트"
 }

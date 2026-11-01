@@ -1,6 +1,7 @@
 package com.morn24.dashboard.data
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -33,6 +34,45 @@ class WidgetColorResolverTest {
         assertEquals(0, mint.backgroundOpacityPercent)
         assertEquals(50, mint.copy(backgroundOpacityPercent = 50).backgroundOpacityPercent)
         assertEquals(100, mint.copy(backgroundOpacityPercent = 100).backgroundOpacityPercent)
+    }
+
+    @Test
+    fun warmPalettesAreAddedWithoutChangingLegacyIdsAndKeepTheirOwnAccentColors() {
+        assertEquals(
+            listOf("mint-blue-lavender", "sky-amber-purple", "lavender-mint-peach", "amber-sky-mauve"),
+            WidgetColorResolver.palettes.take(4).map(WidgetAccentPalette::id),
+        )
+
+        val warm = WidgetColorResolver.palettes.drop(4)
+        assertEquals(
+            listOf("coral-red-sage-cream", "apricot-orange-blue-mint", "butter-yellow-sky-plum"),
+            warm.map(WidgetAccentPalette::id),
+        )
+        val resolved = warm.map { palette ->
+            palette to WidgetColorResolver.resolve(
+                WidgetAppearance(colorMode = AppearanceColorMode.DARK, accentPaletteId = palette.id),
+            )
+        }
+        assertTrue(resolved.all { (palette, colors) -> colors.action == palette.action && colors.progress == palette.progress })
+        resolved.forEach { (_, colors) ->
+            val red = colors.action ushr 16 and 0xFF
+            val green = colors.action ushr 8 and 0xFF
+            assertTrue(red > green)
+        }
+    }
+
+    @Test
+    fun warmPaletteAccentsRemainReadableOnLightBackgrounds() {
+        WidgetColorResolver.palettes.drop(4).forEach { palette ->
+            val colors = WidgetColorResolver.resolve(
+                WidgetAppearance(colorMode = AppearanceColorMode.LIGHT, accentPaletteId = palette.id),
+            )
+            assertTrue(contrastRatio(colors.action, colors.background) >= 4.5)
+            assertTrue(contrastRatio(colors.progress, colors.background) >= 4.5)
+            assertTrue(contrastRatio(colors.todo, colors.background) >= 4.5)
+            assertTrue(contrastRatio(colors.schedule, colors.background) >= 4.5)
+            assertTrue(contrastRatio(colors.project, colors.background) >= 4.5)
+        }
     }
 
     @Test
@@ -72,5 +112,30 @@ class WidgetColorResolverTest {
         assertEquals(0xFF123ABC.toInt(), WidgetColorResolver.eventColor("#123abc"))
         assertEquals(0xFF9AA0A6.toInt(), WidgetColorResolver.eventColor("not-a-color"))
         assertEquals(0xFF9AA0A6.toInt(), WidgetColorResolver.eventColor(null))
+    }
+
+    @Test
+    fun sharedCalendarHexFlowsThroughMapperToWidgetMarkerColor() {
+        val events = DashboardDisplayData.events(
+            Json.parseToJsonElement(
+                """{"version":1,"events":[{"id":"fixture-event-01","title":"일정 EVT-01","calendar":"익명 fixture","color":"#E53935","allDay":false,"start":"2026-11-01T09:30:00+09:00","end":"2026-11-01T10:00:00+09:00"}]}""",
+            ).jsonObject,
+        )
+
+        assertEquals("#E53935", events.single().color)
+        assertEquals(0xFFE53935.toInt(), WidgetColorResolver.eventColor(events.single().color))
+    }
+
+    private fun contrastRatio(first: Int, second: Int): Double {
+        fun luminance(color: Int): Double {
+            fun channel(shift: Int): Double {
+                val value = (color ushr shift and 0xFF) / 255.0
+                return if (value <= 0.04045) value / 12.92 else Math.pow((value + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+        }
+        val brighter = maxOf(luminance(first), luminance(second))
+        val darker = minOf(luminance(first), luminance(second))
+        return (brighter + 0.05) / (darker + 0.05)
     }
 }

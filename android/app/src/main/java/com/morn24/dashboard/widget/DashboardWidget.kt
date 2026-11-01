@@ -37,6 +37,7 @@ import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
+import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
@@ -82,16 +83,54 @@ data class WidgetLayoutPlan(
 )
 
 object WidgetLayoutPlanner {
-    fun plan(size: DpSize, fontScalePercent: Int): WidgetLayoutPlan {
+    fun plan(
+        size: DpSize,
+        fontScalePercent: Int,
+        hasUndo: Boolean = false,
+        hasStatus: Boolean = false,
+    ): WidgetLayoutPlan {
         val small = size.width < 200.dp && size.height < 300.dp
         val medium = size.width >= 200.dp && size.height < 300.dp
         val narrowTall = size.width < 200.dp && size.height >= 300.dp
-        val largeText = fontScalePercent >= 130
+        val scale = fontScalePercent.coerceIn(80, 150)
+        val todoRowHeight = (48 * scale + 99) / 100
+        val eventRowHeight = (36 * scale + 99) / 100
+        val projectRowHeight = (48 * scale + 99) / 100
+        val chromeHeight = 48 + 30 + 48 + 16 + (if (hasUndo) 48 else 0) + (if (hasStatus) 18 else 0)
+        val bodyHeight = (size.height.value.toInt() - chromeHeight).coerceAtLeast(48)
+
+        fun visibleRows(panelHeight: Int, rowHeight: Int, labelHeight: Int = 32): Int =
+            ((panelHeight - labelHeight).coerceAtLeast(0) / rowHeight).coerceAtLeast(1)
+
         return when {
             small -> WidgetLayoutPlan(columns = 1, small = true, medium = false, narrowTall = false, todoRows = 1, eventRows = 0, projectRows = 0)
-            medium -> WidgetLayoutPlan(columns = 2, small = false, medium = true, narrowTall = false, todoRows = 1, eventRows = 1, projectRows = 1)
-            narrowTall -> WidgetLayoutPlan(columns = 1, small = false, medium = false, narrowTall = true, todoRows = 2, eventRows = 2, projectRows = 2)
-            else -> WidgetLayoutPlan(columns = 2, small = false, medium = false, narrowTall = false, todoRows = 1, eventRows = if (largeText) 1 else 4, projectRows = 1)
+            medium -> {
+                val half = ((bodyHeight - 4) / 2).coerceAtLeast(48)
+                WidgetLayoutPlan(
+                    columns = 2, small = false, medium = true, narrowTall = false,
+                    todoRows = visibleRows(bodyHeight, todoRowHeight),
+                    eventRows = visibleRows(half, eventRowHeight, labelHeight = 24),
+                    projectRows = visibleRows(half, projectRowHeight, labelHeight = 28),
+                )
+            }
+            narrowTall -> {
+                val panelHeight = ((bodyHeight - 8) / 3).coerceAtLeast(48)
+                WidgetLayoutPlan(
+                    columns = 1, small = false, medium = false, narrowTall = true,
+                    todoRows = visibleRows(panelHeight, todoRowHeight),
+                    eventRows = visibleRows(panelHeight, eventRowHeight, labelHeight = 28),
+                    projectRows = visibleRows(panelHeight, projectRowHeight, labelHeight = 28),
+                )
+            }
+            else -> {
+                val half = ((bodyHeight - 6) / 2).coerceAtLeast(48)
+                WidgetLayoutPlan(
+                    columns = 2, small = false, medium = false, narrowTall = false,
+                    todoRows = visibleRows(half, todoRowHeight),
+                    eventRows = visibleRows(half, eventRowHeight),
+                    projectRows = visibleRows(bodyHeight, projectRowHeight),
+                )
+            }
         }
     }
 }
@@ -115,7 +154,12 @@ class DashboardWidget : GlanceAppWidget() {
             val snapshot by snapshotFlow.collectAsState(initial)
             val size = LocalSize.current
             val webAction = actionStartActivity(Intent(Intent.ACTION_VIEW, snapshot.webUrl.toUri()))
-            val plan = WidgetLayoutPlanner.plan(size, snapshot.appearance.fontScalePercent)
+            val plan = WidgetLayoutPlanner.plan(
+                size = size,
+                fontScalePercent = snapshot.appearance.fontScalePercent,
+                hasUndo = snapshot.undo?.completedDate == LocalDate.now().toString(),
+                hasStatus = hasCompactStatus(snapshot),
+            )
             androidx.glance.GlanceTheme(colors = appearanceColors(snapshot.appearance)) {
                 WidgetContent(snapshot, plan, webAction, widgetId)
             }
@@ -140,23 +184,16 @@ private fun WidgetContent(
     val actionableTodos = TodoRules.displayOrder(snapshot.todos, todayText).filter {
         !TodoRules.isDone(it, todayText) || it.id in snapshot.pendingTodoIds
     }
-    val shownTodos = actionableTodos.take(plan.todoRows)
-    val hiddenTodos = (actionableTodos.size - shownTodos.size).coerceAtLeast(0)
     val activeProjects = ProjectRules.active(snapshot.projects)
-    val projects = activeProjects.take(plan.projectRows)
     val allTodayEvents = CalendarRules.occurringToday(snapshot.calendarEvents, today, zone)
     val undo = snapshot.undo?.takeIf { it.completedDate == todayText }
     val pendingUndo = snapshot.pendingUndoTodoId
-    val eventRowLimit = if (undo != null && plan.columns > 1) 1 else plan.eventRows
-    val events = allTodayEvents.take(eventRowLimit)
-    val hiddenEvents = (allTodayEvents.size - events.size).coerceAtLeast(0)
     val nextTimed = if (snapshot.calendarAvailable) CalendarRules.nextTimed(snapshot.calendarEvents, today, zone, now) else null
-    val denseEventPreview = !plan.small && !plan.medium && undo == null && eventRowLimit >= 4
     val rootModifier = GlanceModifier.fillMaxSize()
         .background(glanceColor(backgroundArgb(appearance)))
-        .clickable(webAction)
+
     when {
-        plan.small || plan.narrowTall -> LazyColumn(modifier = rootModifier.padding(if (plan.small) 8.dp else 10.dp)) {
+        plan.small -> LazyColumn(modifier = rootModifier.padding(8.dp)) {
             item(itemId = stableId("header")) { Header(snapshot, today, plan.small, appearance, widgetId) }
             item(itemId = stableId("sync-status")) { SyncStatus(snapshot, appearance) }
             if (snapshot.connectionState != WidgetConnectionState.READY) {
@@ -168,41 +205,14 @@ private fun WidgetContent(
                 if (undo != null) item(itemId = stableId("undo")) {
                     UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance)
                 }
-                if (plan.small) {
-                    item(itemId = stableId("next-event")) { NextEventSummary(snapshot, nextTimed, today, zone, appearance) }
-                    item(itemId = stableId("small-todo-panel")) {
-                        TodoPanel(
-                            todos = shownTodos,
-                            total = actionableTodos.size,
-                            hidden = hiddenTodos,
-                            today = todayText,
-                            pendingTodoIds = snapshot.pendingTodoIds,
-                            appearance = appearance,
-                            webAction = webAction,
-                            compact = true,
-                        )
-                    }
-                    item(itemId = stableId("small-all")) { MoreAction("전체 보기", webAction, appearance) }
-                } else {
-                    item(itemId = stableId("tall-todo-panel")) {
-                        TodoPanel(shownTodos, actionableTodos.size, hiddenTodos, todayText, snapshot.pendingTodoIds, appearance, webAction)
-                    }
-                    item(itemId = stableId("tall-calendar-panel")) {
-                        SchedulePanel(events, allTodayEvents.size, hiddenEvents, snapshot.calendarAvailable, now, zone, today, appearance, webAction)
-                    }
-                    item(itemId = stableId("tall-project-panel")) {
-                        ProjectPanel(projects, activeProjects.size, appearance, webAction)
-                    }
-                    item(itemId = stableId("tall-next-event")) { NextEventSummary(snapshot, nextTimed, today, zone, appearance) }
-                    item(itemId = stableId("tall-actions")) {
-                        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            MoreAction("전체 보기", webAction, appearance, modifier = GlanceModifier.defaultWeight())
-                            MoreAction("설정", actionRunCallback<OpenWidgetSettingsAction>(), appearance, modifier = GlanceModifier.width(64.dp))
-                        }
-                    }
+                item(itemId = stableId("next-event")) { NextEventSummary(snapshot, nextTimed, today, zone, appearance) }
+                item(itemId = stableId("small-todo-panel")) {
+                    SmallTodoPreview(actionableTodos, todayText, snapshot.pendingTodoIds, appearance)
                 }
+                item(itemId = stableId("small-all")) { MoreAction("전체 보기", webAction, appearance) }
             }
         }
+
         plan.medium -> Column(modifier = rootModifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
             CompactHeader(snapshot, today, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, undo, pendingUndo, appearance)
             if (hasCompactStatus(snapshot)) SyncStatus(snapshot, appearance, compact = true)
@@ -211,44 +221,84 @@ private fun WidgetContent(
             } else {
                 Row(modifier = GlanceModifier.fillMaxWidth().defaultWeight(), verticalAlignment = Alignment.Top) {
                     TodoPanel(
-                        todos = shownTodos,
+                        todos = actionableTodos,
                         total = actionableTodos.size,
-                        hidden = hiddenTodos,
                         today = todayText,
                         pendingTodoIds = snapshot.pendingTodoIds,
                         appearance = appearance,
-                        webAction = webAction,
                         compact = true,
-                        modifier = GlanceModifier.defaultWeight(),
+                    modifier = GlanceModifier.defaultWeight().fillMaxHeight(),
                     )
                     Spacer(GlanceModifier.width(5.dp))
-                    Column(modifier = GlanceModifier.defaultWeight()) {
+                    Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight()) {
                         SchedulePanel(
-                            events = events,
+                            events = allTodayEvents,
                             total = allTodayEvents.size,
-                            hidden = hiddenEvents,
                             available = snapshot.calendarAvailable,
                             now = now,
                             zone = zone,
                             today = today,
                             appearance = appearance,
-                            webAction = webAction,
                             compact = true,
                             modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
                         )
                         Spacer(GlanceModifier.height(4.dp))
                         ProjectPanel(
-                            projects = activeProjects.take(plan.projectRows),
+                            projects = activeProjects,
                             total = activeProjects.size,
                             appearance = appearance,
-                            webAction = webAction,
                             compact = true,
                             modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
                         )
                     }
                 }
             }
+            if (snapshot.connectionState == WidgetConnectionState.READY) MoreAction("전체 보기", webAction, appearance)
         }
+
+        plan.narrowTall -> Column(modifier = rootModifier.padding(8.dp)) {
+            Header(snapshot, today, small = false, appearance = appearance, widgetId = widgetId)
+            if (snapshot.connectionState != WidgetConnectionState.READY) {
+                ConnectionRequired(snapshot, appearance)
+            } else {
+                if (hasCompactStatus(snapshot)) SyncStatus(snapshot, appearance, compact = true)
+                Summary(snapshot, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, appearance)
+                if (undo != null) UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance)
+                Column(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
+                    TodoPanel(
+                        todos = actionableTodos,
+                        total = actionableTodos.size,
+                        today = todayText,
+                        pendingTodoIds = snapshot.pendingTodoIds,
+                        appearance = appearance,
+                        compact = true,
+                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                    )
+                    Spacer(GlanceModifier.height(4.dp))
+                    SchedulePanel(
+                        events = allTodayEvents,
+                        total = allTodayEvents.size,
+                        available = snapshot.calendarAvailable,
+                        now = now,
+                        zone = zone,
+                        today = today,
+                        appearance = appearance,
+                        compact = true,
+                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                    )
+                    Spacer(GlanceModifier.height(4.dp))
+                    ProjectPanel(
+                        projects = activeProjects,
+                        total = activeProjects.size,
+                        appearance = appearance,
+                        compact = true,
+                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                    )
+                }
+                MoreAction("전체 보기", webAction, appearance)
+            }
+        }
+
         else -> Column(modifier = rootModifier.padding(8.dp)) {
             Header(snapshot, today, small = false, appearance = appearance, widgetId = widgetId)
             if (snapshot.connectionState != WidgetConnectionState.READY) {
@@ -258,43 +308,37 @@ private fun WidgetContent(
                 Summary(snapshot, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, appearance)
                 if (undo != null) UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance)
                 Row(modifier = GlanceModifier.fillMaxWidth().defaultWeight(), verticalAlignment = Alignment.Top) {
-                    Column(modifier = GlanceModifier.defaultWeight()) {
+                    Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight()) {
                         TodoPanel(
-                            todos = shownTodos,
+                            todos = actionableTodos,
                             total = actionableTodos.size,
-                            hidden = hiddenTodos,
                             today = todayText,
                             pendingTodoIds = snapshot.pendingTodoIds,
                             appearance = appearance,
-                            webAction = webAction,
-                            compact = denseEventPreview,
-                            modifier = if (denseEventPreview) GlanceModifier.fillMaxWidth().height(78.dp)
-                                else GlanceModifier.fillMaxWidth().defaultWeight(),
+                            modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
                         )
                         Spacer(GlanceModifier.height(6.dp))
                         SchedulePanel(
-                            events = events,
+                            events = allTodayEvents,
                             total = allTodayEvents.size,
-                            hidden = hiddenEvents,
                             available = snapshot.calendarAvailable,
                             now = now,
                             zone = zone,
                             today = today,
                             appearance = appearance,
-                            webAction = webAction,
-                            compact = denseEventPreview,
+                            compact = true,
                             modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
                         )
                     }
                     Spacer(GlanceModifier.width(8.dp))
                     ProjectPanel(
-                        projects = projects,
+                        projects = activeProjects,
                         total = activeProjects.size,
                         appearance = appearance,
-                        webAction = webAction,
-                        modifier = GlanceModifier.defaultWeight(),
+                        modifier = GlanceModifier.defaultWeight().fillMaxHeight(),
                     )
                 }
+                MoreAction("전체 보기", webAction, appearance)
             }
         }
     }
@@ -363,27 +407,35 @@ private fun UndoButton(title: String, pending: Boolean, recordId: String, appear
 private fun TodoPanel(
     todos: List<Todo>,
     total: Int,
-    hidden: Int,
     today: String,
     pendingTodoIds: Set<String>,
     appearance: WidgetAppearance,
-    webAction: androidx.glance.action.Action,
     compact: Boolean = false,
     modifier: GlanceModifier = GlanceModifier.fillMaxWidth(),
 ) {
-    val colors = WidgetColorResolver.resolve(appearance)
     Column(
-        modifier = sectionPanelModifier(modifier, SectionTone.TODO, appearance, webAction, "오늘 할 일 전체 보기"),
+        modifier = sectionPanelModifier(modifier, SectionTone.TODO, appearance, "오늘 할 일 목록, ${total}개"),
     ) {
         PanelRule(SectionTone.TODO, appearance)
         Spacer(GlanceModifier.height(if (compact) 1.dp else 3.dp))
-        SectionLabel("할 일 ${todos.size}/$total${if (hidden > 0) " · +$hidden" else ""}", appearance, SectionTone.TODO)
+        SectionLabel("할 일 ${total}개", appearance, SectionTone.TODO)
         if (todos.isEmpty()) {
-            Text("오늘 할 일이 없어요", maxLines = 2, style = bodyStyle(appearance, if (compact) 9 else 10))
+            Text(
+                "오늘 할 일이 없어요",
+                modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                maxLines = 2,
+                style = bodyStyle(appearance, if (compact) 9 else 10),
+            )
         } else {
-            todos.forEach { todo -> TodoToggleRow(todo, today, pendingTodoIds, appearance) }
+            LazyColumn(
+                modifier = GlanceModifier.fillMaxWidth().defaultWeight()
+                    .semantics { contentDescription = "할 일 목록, ${total}개, 세로로 스크롤" },
+            ) {
+                items(items = todos, itemId = { todo -> stableId("todo:${todo.id}") }) { todo ->
+                    TodoToggleRow(todo, today, pendingTodoIds, appearance)
+                }
+            }
         }
-        if (hidden > 0) Text("+${hidden}개 더보기", maxLines = 1, style = bodyStyle(appearance, 9, accent = true, roleColor = colors.todo))
     }
 }
 
@@ -392,29 +444,42 @@ private fun TodoPanel(
 private fun SchedulePanel(
     events: List<CalendarOccurrence>,
     total: Int,
-    hidden: Int,
     available: Boolean,
     now: Instant,
     zone: ZoneId,
     today: LocalDate,
     appearance: WidgetAppearance,
-    webAction: androidx.glance.action.Action,
     compact: Boolean = false,
     modifier: GlanceModifier = GlanceModifier.fillMaxWidth(),
 ) {
-    val colors = WidgetColorResolver.resolve(appearance)
     Column(
-        modifier = sectionPanelModifier(modifier, SectionTone.SCHEDULE, appearance, webAction, "오늘 일정 전체 보기"),
+        modifier = sectionPanelModifier(modifier, SectionTone.SCHEDULE, appearance, "오늘 일정 목록, ${total}개"),
     ) {
         PanelRule(SectionTone.SCHEDULE, appearance)
         Spacer(GlanceModifier.height(1.dp))
-        SectionLabel("오늘 일정 ${events.size}/$total${if (hidden > 0) " · +$hidden" else ""}", appearance, SectionTone.SCHEDULE)
+        SectionLabel("오늘 일정 ${total}개", appearance, SectionTone.SCHEDULE)
         when {
-            !available -> Text("캘린더 연결 안 됨", maxLines = 1, style = bodyStyle(appearance, 9, variant = true))
-            events.isEmpty() -> Text("오늘 일정 없음", maxLines = 1, style = bodyStyle(appearance, 9))
-            else -> events.forEach { EventLine(it, now, zone, today, appearance, compact = compact) }
+            !available -> Text(
+                "캘린더 연결 안 됨",
+                modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                maxLines = 1,
+                style = bodyStyle(appearance, 9, variant = true),
+            )
+            events.isEmpty() -> Text(
+                "오늘 일정 없음",
+                modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                maxLines = 1,
+                style = bodyStyle(appearance, 9),
+            )
+            else -> LazyColumn(
+                modifier = GlanceModifier.fillMaxWidth().defaultWeight()
+                    .semantics { contentDescription = "오늘 일정 목록, ${total}개, 세로로 스크롤" },
+            ) {
+                items(items = events, itemId = { occurrence -> stableId("event:${occurrence.event.id}") }) { occurrence ->
+                    EventLine(occurrence, now, zone, today, appearance, compact = compact)
+                }
+            }
         }
-        if (hidden > 0) Text("+${hidden}개 더보기", maxLines = 1, style = bodyStyle(appearance, 9, accent = true, roleColor = colors.schedule))
     }
 }
 
@@ -424,24 +489,47 @@ private fun ProjectPanel(
     projects: List<Project>,
     total: Int,
     appearance: WidgetAppearance,
-    webAction: androidx.glance.action.Action,
     compact: Boolean = false,
     modifier: GlanceModifier = GlanceModifier.fillMaxWidth(),
 ) {
-    val colors = WidgetColorResolver.resolve(appearance)
-    val hidden = (total - projects.size).coerceAtLeast(0)
     Column(
-        modifier = sectionPanelModifier(modifier, SectionTone.PROJECT, appearance, webAction, "진행 중 프로젝트 전체 보기"),
+        modifier = sectionPanelModifier(modifier, SectionTone.PROJECT, appearance, "진행 중 프로젝트 목록, ${total}개"),
     ) {
         PanelRule(SectionTone.PROJECT, appearance)
         Spacer(GlanceModifier.height(if (compact) 1.dp else 3.dp))
-        SectionLabel("프로젝트 ${projects.size}/$total${if (hidden > 0) " · +$hidden" else ""}", appearance, SectionTone.PROJECT)
+        SectionLabel("프로젝트 ${total}개", appearance, SectionTone.PROJECT)
         if (projects.isEmpty()) {
-            Text("진행 중 프로젝트 없음", maxLines = 2, style = bodyStyle(appearance, 9))
+            Text("진행 중 프로젝트 없음", modifier = GlanceModifier.fillMaxWidth().defaultWeight(), maxLines = 2, style = bodyStyle(appearance, 9))
         } else {
-            projects.forEach { project -> ProjectLine(project, appearance, compact) }
+            LazyColumn(
+                modifier = GlanceModifier.fillMaxWidth().defaultWeight()
+                    .semantics { contentDescription = "진행 중 프로젝트 목록, ${total}개, 세로로 스크롤" },
+            ) {
+                items(items = projects, itemId = { project -> stableId("project:${project.id}") }) { project ->
+                    ProjectLine(project, appearance, compact)
+                }
+            }
         }
-        if (hidden > 0) Text("+${hidden}개 더보기", maxLines = 1, style = bodyStyle(appearance, 9, accent = true, roleColor = colors.project))
+    }
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun SmallTodoPreview(
+    todos: List<Todo>,
+    today: String,
+    pendingTodoIds: Set<String>,
+    appearance: WidgetAppearance,
+) {
+    Column(modifier = sectionPanelModifier(GlanceModifier.fillMaxWidth(), SectionTone.TODO, appearance, "할 일 요약")) {
+        PanelRule(SectionTone.TODO, appearance)
+        SectionLabel("할 일 ${todos.size}개", appearance, SectionTone.TODO)
+        val first = todos.firstOrNull()
+        if (first == null) {
+            Text("오늘 할 일이 없어요", maxLines = 2, style = bodyStyle(appearance, 10))
+        } else {
+            TodoToggleRow(first, today, pendingTodoIds, appearance)
+        }
     }
 }
 
@@ -451,7 +539,6 @@ private fun sectionPanelModifier(
     modifier: GlanceModifier,
     tone: SectionTone,
     appearance: WidgetAppearance,
-    webAction: androidx.glance.action.Action,
     description: String,
 ): GlanceModifier {
     val colors = WidgetColorResolver.resolve(appearance)
@@ -463,8 +550,7 @@ private fun sectionPanelModifier(
     val alpha = appearance.backgroundOpacityPercent * 255 / 100
     return modifier.background(glanceColor(WidgetColorResolver.withAlpha(surface, alpha)))
         .cornerRadius(9.dp)
-        .clickable(webAction)
-        .semantics { contentDescription = "$description, 웹앱 열기" }
+        .semantics { contentDescription = description }
         .padding(8.dp)
 }
 
@@ -579,6 +665,14 @@ private fun ConnectionRequired(snapshot: DashboardSnapshot, appearance: WidgetAp
         Text(headline, style = bodyStyle(appearance, 15, bold = true))
         Spacer(GlanceModifier.height(4.dp))
         Text("탭하여 Dashboard 설정을 엽니다.", style = bodyStyle(appearance, 12, variant = true))
+        Box(
+            modifier = GlanceModifier.fillMaxWidth().height(48.dp)
+                .clickable(actionRunCallback<OpenWidgetSettingsAction>())
+                .semantics { contentDescription = "Dashboard 연결 설정 열기" },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Text("연결 설정 열기", style = bodyStyle(appearance, 11, bold = true, accent = true))
+        }
     }
 }
 

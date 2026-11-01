@@ -108,7 +108,7 @@ function createScript({
     UrlFetchApp: {
       fetch: (url, options = {}) => {
         requests.push({ url: String(url), method: String(options.method || 'get').toLowerCase(), headers: options.headers || {} });
-        const statusFor = (kind) => currentApiStatus[kind] || 200;
+        const statusFor = (kind) => currentApiStatus[kind] ?? 200;
         if (String(url).startsWith('https://api.github.com/')) {
           if (String(options.method).toLowerCase() === 'put') {
             const payload = JSON.parse(options.payload);
@@ -125,10 +125,20 @@ function createScript({
         }
         if (String(url).includes('/colors')) return response(palette, statusFor('palette'));
         if (String(url).includes('/events?')) {
+          if (String(url).includes('eventLabelVersion=1') && currentApiStatus.eventLabels != null) {
+            return response({ error: { message: 'Invalid eventLabelVersion', errors: [{ reason: 'invalidParameter' }] } }, statusFor('eventLabels'));
+          }
           const index = eventPageIndex++;
-          return response(eventPages[index] || { items: [] }, statusFor('events'));
+          const pageStatus = currentApiStatus.eventsPages?.[index] ?? statusFor('events');
+          return response(eventPages[index] || { items: [] }, pageStatus);
         }
-        if (String(url).includes('/calendars/')) return response(labels, statusFor('labels'));
+        if (String(url).includes('/calendars/')) {
+          const statusKind = String(url).includes('fields=') && currentApiStatus.labelFields != null ? 'labelFields' : 'labels';
+          if (currentApiStatus[statusKind] != null) {
+            return response({ error: { message: 'Invalid fields parameter', errors: [{ reason: 'invalidParameter' }] } }, statusFor(statusKind));
+          }
+          return response(labels, statusFor('labels'));
+        }
         return response({ error: 'unhandled fixture URL' }, 404);
       },
     },
@@ -264,4 +274,95 @@ test('expired cached palette remains available when a forced refresh fails', () 
   app.setApiStatus({ palette: 503 });
   const stale = app.context.getEventColorPalette_(true);
   assert.equal(stale['2'].background, '#43A047');
+});
+
+test('label fields and eventLabelVersion 400 responses fall back to legacy color IDs', () => {
+  const event = makeEvent({
+    uid: 'legacy@example.test',
+    title: 'Private fixture title',
+    start: '2026-03-01T10:00:00Z',
+    end: '2026-03-01T11:00:00Z',
+    color: '11',
+  });
+  const app = createScript({
+    events: [event],
+    eventPages: [{ items: [{ id: 'legacy', iCalUID: 'legacy@example.test', start: { dateTime: '2026-03-01T10:00:00Z' }, colorId: '11' }] }],
+    palette: { event: { '11': { background: '#E53935' } } },
+    apiStatus: { labelFields: 400, eventLabels: 400 },
+  });
+
+  const collected = app.context.collectEvents_(new Date('2026-03-01T00:00:00Z'), new Date('2026-03-02T00:00:00Z'), 'UTC', false);
+  assert.equal(collected[0].color, '#E53935');
+  assert.ok(app.requests.some((request) => request.url.includes('fields=')));
+  assert.ok(app.requests.some((request) => request.url.includes('/calendars/') && !request.url.includes('fields=')));
+  assert.ok(app.requests.some((request) => request.url.includes('eventLabelVersion=1')));
+  assert.ok(app.requests.some((request) => request.url.includes('/events?') && !request.url.includes('eventLabelVersion=1')));
+  assert.ok(app.requests.every((request) => request.method === 'get'));
+  app.setEventPages([{ items: [] }]);
+  assert.equal(app.context.diagnoseCalendarColors().google.compatibilityFallbacks.events, true);
+  assert.ok(app.logs.every((line) => !line.includes('Private fixture title')));
+});
+
+test('diagnoseCalendarColors reports only safe HTTP stages and color counts', () => {
+  const event = makeEvent({
+    uid: 'diagnostic@example.test',
+    title: 'Do not report this title',
+    start: '2026-03-01T10:00:00Z',
+    end: '2026-03-01T11:00:00Z',
+    color: '11',
+  });
+  const app = createScript({
+    events: [event],
+    palette: { event: {} },
+    apiStatus: { palette: 401, labels: 403, events: 429 },
+    remoteFile: {
+      sha: 'sha-private-fixture',
+      data: { version: 1, events: [{ color: '#123abc' }, { color: '#ABCDEF' }, { color: 'bad' }] },
+    },
+  });
+
+  const report = app.context.diagnoseCalendarColors();
+  const statuses = report.google.apiRequests.map(({ stage, status }) => `${stage}:${status}`);
+  assert.ok(statuses.includes('palette:401'));
+  assert.ok(statuses.includes('labels:403'));
+  assert.ok(statuses.includes('events_labels_page_1:429'));
+  assert.equal(report.remoteCalendarJson.eventCount, 3);
+  assert.equal(report.remoteCalendarJson.validHexColors, 2);
+  assert.equal(report.remoteCalendarJson.distinctHexColors, 2);
+  assert.equal(report.remoteCalendarJson.invalidOrMissing, 1);
+  const safeOutput = JSON.stringify({ report, logs: app.logs });
+  assert.ok(!safeOutput.includes('Do not report this title'));
+  assert.ok(!safeOutput.includes('diagnostic@example.test'));
+  assert.ok(!safeOutput.includes('fixture-token'));
+  assert.ok(app.requests.filter((request) => request.url.includes('googleapis.com')).every((request) => request.method === 'get'));
+});
+
+test('a later events page failure keeps earlier matches and records the failing page', () => {
+  const pages = [
+    { items: [{ id: 'first', iCalUID: 'first@example.test', start: { dateTime: '2026-03-01T09:00:00Z' }, colorId: '1' }], nextPageToken: 'next' },
+    { items: [{ id: 'second', iCalUID: 'second@example.test', start: { dateTime: '2026-03-01T10:00:00Z' }, colorId: '2' }] },
+  ];
+  const app = createScript({
+    eventPages: pages,
+    palette: { event: { '1': { background: '#7986CB' } } },
+    apiStatus: { eventsPages: [200, 503] },
+  });
+
+  const report = app.context.diagnoseCalendarColors();
+  const lastEventsRequest = report.google.apiRequests.filter(({ stage }) => stage.startsWith('events_')).at(-1);
+  assert.equal(lastEventsRequest.stage, 'events_labels_page_2');
+  assert.equal(lastEventsRequest.status, 503);
+});
+
+test('trigger event objects do not force color cache refresh; the explicit action does', () => {
+  const app = createScript({ palette: { event: { '1': { background: '#7986CB' } } } });
+  app.context.getEventColorPalette_(false);
+  assert.equal(app.requests.filter((request) => request.url.includes('/colors')).length, 1);
+
+  app.context.syncCalendar({ triggerUid: 'safe-fixture' });
+  assert.equal(app.requests.filter((request) => request.url.includes('/colors')).length, 1);
+
+  app.context.refreshCalendarColors();
+  assert.equal(app.requests.filter((request) => request.url.includes('/colors')).length, 2);
+  assert.ok(app.requests.filter((request) => request.url.includes('googleapis.com')).every((request) => request.method === 'get'));
 });

@@ -1,6 +1,6 @@
 # Dashboard Android 위젯 설치·확인 안내
 
-이 안내는 Android Studio로 직접 빌드하거나 debug APK를 Android 폰에 설치해 설정하는 방법입니다. 레이아웃·색상 개선판은 `com.morn24.dashboard` 앱 1.4 (`versionCode 5`)이며, GitHub 비공개 저장소의 `todos.json`, `projects.json`, `calendar.json`을 읽고 할 일 체크만 `todos.json`에 저장합니다. [기존 개선판 검증](android-ux-verification.md)과 [이번 레이아웃·색상 검증](android-layout-colors-verification.md)을 구분해 참고하세요.
+이 안내는 Android Studio로 직접 빌드하거나 debug APK를 Android 폰에 설치해 설정하는 방법입니다. 스크롤·색상 개선판은 `com.morn24.dashboard` 앱 1.5 (`versionCode 6`)이며, GitHub 비공개 저장소의 `todos.json`, `projects.json`, `calendar.json`을 읽고 할 일 체크만 `todos.json`에 저장합니다. [기존 개선판 검증](android-ux-verification.md), [레이아웃·색상 검증](android-layout-colors-verification.md), [스크롤·색상 검증](android-scroll-colors-verification.md)을 구분해 참고하세요.
 
 ## 1. 설치
 
@@ -13,7 +13,7 @@
 
 ### 빌드된 APK 설치
 
-레이아웃·색상 개선판 debug APK는 [`android/app/build/outputs/apk/debug/Dashboard-layout-colors-debug.apk`](../android/app/build/outputs/apk/debug/Dashboard-layout-colors-debug.apk)입니다. `app-debug.apk`와 내용이 같은 복사본입니다. USB·클라우드 드라이브 등으로 폰에 옮겨 파일 앱에서 열거나, USB 디버깅이 허용된 기기에서 `adb install -r Dashboard-layout-colors-debug.apk`로 설치합니다. 기존 앱을 업데이트할 때는 앱을 삭제하거나 데이터를 지우지 마세요. 같은 앱 서명 키의 APK를 덮어 설치하면 연결 설정·암호화 토큰·캐시·위젯별 모양을 유지합니다. 폰에서 출처를 알 수 없는 앱 설치를 요청하면 APK를 연 파일 앱에 한해 설치를 허용한 뒤 설치 후 다시 끌 수 있습니다. 이 파일은 debug 빌드입니다. APK를 다시 빌드하려면 프로젝트 루트의 `android/`에서 Windows는 `gradlew.bat assembleDebug`, macOS/Linux는 `./gradlew assembleDebug`를 실행합니다.
+스크롤·색상 개선판 debug APK는 [`android/app/build/outputs/apk/debug/Dashboard-scroll-colors-debug.apk`](../android/app/build/outputs/apk/debug/Dashboard-scroll-colors-debug.apk)입니다. `app-debug.apk`와 내용이 같은 복사본입니다. USB·클라우드 드라이브 등으로 폰에 옮겨 파일 앱에서 열거나, USB 디버깅이 허용된 기기에서 `adb install -r Dashboard-scroll-colors-debug.apk`로 설치합니다. 기존 앱을 업데이트할 때는 앱을 삭제하거나 데이터를 지우지 마세요. 같은 앱 서명 키의 APK를 덮어 설치하면 연결 설정·암호화 토큰·캐시·위젯별 모양을 유지합니다. 폰에서 출처를 알 수 없는 앱 설치를 요청하면 APK를 연 파일 앱에 한해 설치를 허용한 뒤 설치 후 다시 끌 수 있습니다. 이 파일은 debug 빌드입니다. APK를 다시 빌드하려면 프로젝트 루트의 `android/`에서 Windows는 `gradlew.bat assembleDebug`, macOS/Linux는 `./gradlew assembleDebug`를 실행합니다.
 
 ## 2. GitHub 연결
 
@@ -27,7 +27,7 @@
 
 1. 홈 화면 빈 곳을 길게 누르고 **위젯 → Dashboard**를 선택합니다.
 2. 작은 위젯을 끌어 놓고, 중간·큰 크기도 각각 추가하거나 모서리를 끌어 크기를 바꿉니다.
-3. 작은 크기는 오늘 날짜·동기화 상태·할 일 진행률·다음 시간 일정과 바로 체크할 할 일 1개를 표시합니다. 중간 크기는 다음 시간 일정·진행 중 프로젝트·바로 체크할 할 일 1개를 보여 줍니다. 4×4 큰 크기는 미완료 할 일 최대 3개, 오늘 일정 최대 5개, 진행 중 프로젝트 최대 4개를 스크롤해 봅니다. 글씨를 130% 이상 키운 중간 크기는 체크 행을 유지하기 위해 일정 요약을 줄이고 할 일 1개를 먼저 보여 줍니다.
+3. 작은 2×2 크기는 요약과 빠른 체크 한 건을 보여 줍니다. 공간이 있는 위젯은 오늘 할 일 전체, 오늘 일정 전체, 진행 중 프로젝트 전체를 각 영역의 목록으로 전달합니다. 4×4 큰 크기는 할 일·일정이 왼쪽 열에, 프로젝트가 오른쪽 열에 놓이고, 각 목록 안에서 세로로 스와이프해 따로 이동합니다. 좁고 긴 크기는 세 영역을 세로로 배치하며 패널별 목록을 스크롤합니다. 헤더의 전체 보기 버튼은 명시적으로 선택했을 때만 웹앱을 엽니다. 글씨 크기와 런처 셀 크기에 따라 첫 화면의 가시 항목 수는 달라집니다.
 4. 홈 화면 테마를 밝게·어둡게 바꾸고 한글·긴 제목·이모지가 잘리는지 확인합니다. 런처의 셀과 글자 크기에 따라 실제 위젯 dp 크기와 줄임은 달라질 수 있습니다.
 
 ## 3-1. 위젯별 꾸미기와 빠른 체크
@@ -54,7 +54,7 @@ WorkManager는 Android 절전 상태에서 지연될 수 있습니다. 정기 �
 
 ## 6. 확인 결과 전달
 
-초기판 빌드는 `docs/android-verification.md`, 이전 개선판은 `docs/android-ux-verification.md`, 이번 APK·실기기 렌더는 `docs/android-layout-colors-verification.md`에 기록했습니다. 연결 디버깅 기기 확인 결과와 S25에서 추가로 확인할 항목을 구분해 두었습니다.
+초기판 빌드는 `docs/android-verification.md`, 이전 개선판은 `docs/android-ux-verification.md`, 이전 APK 검수는 `docs/android-layout-colors-verification.md`, 이번 스크롤·색상 작업은 `docs/android-scroll-colors-verification.md`에 기록합니다. 연결 디버깅 기기 확인 결과와 S25에서 추가로 확인할 항목을 구분해 둡니다.
 
 - 작은·중간·큰 위젯의 화면과 다크 모드 표시
 - 위젯 체크 → 웹앱 반영, 웹앱 변경 → 위젯 새로고침 반영
