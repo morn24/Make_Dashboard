@@ -12,6 +12,8 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="ptr" id="ptr" aria-hidden="true">⟳</div>
+
   <header class="top">
     <div>
       <div class="date" id="today"></div>
@@ -41,6 +43,7 @@
         <a href="https://github.com/morn24/Make_Dashboard/blob/main/docs/google-calendar-setup.md" target="_blank" rel="noopener">연결 방법 보기</a>
       </p>
       <p class="tomorrow" id="cal-tomorrow"></p>
+      <p class="stale" id="cal-stale" hidden></p>
     </section>
 
     <section class="card" aria-labelledby="todo-title">
@@ -55,12 +58,18 @@
 
       <form class="add" id="add-form" autocomplete="off">
         <input id="add-title" type="text" placeholder="할 일 추가" maxlength="120" required>
-        <label class="repeat" title="매일 반복">
-          <input id="add-daily" type="checkbox">
-          <span>매일</span>
-        </label>
+        <select id="add-repeat" class="repeat-select" aria-label="반복">
+          <option value="none">한 번</option>
+          <option value="daily">매일</option>
+          <option value="weekdays">평일</option>
+          <option value="weekend">주말</option>
+        </select>
         <button type="submit" class="primary">추가</button>
       </form>
+      <details class="upcoming" id="todo-upcoming" hidden>
+        <summary id="todo-upcoming-title"></summary>
+        <ul id="todo-upcoming-list"></ul>
+      </details>
       <button class="link small" id="clean-done" hidden>지난 완료 항목 정리</button>
     </section>
 
@@ -112,6 +121,41 @@
       <span class="grow"></span>
       <button type="button" id="pm-close">닫기</button>
     </div>
+  </dialog>
+
+  <dialog id="todo-menu">
+    <form method="dialog" id="tm-form">
+      <h2>할 일 수정</h2>
+      <label class="field">이름
+        <input id="tm-title" type="text" maxlength="120" required>
+      </label>
+      <div class="field">반복
+        <div class="days" id="tm-days" role="group" aria-label="반복 요일">
+          <button type="button" data-kind="none">한 번</button>
+          <button type="button" data-kind="daily">매일</button>
+          <button type="button" data-day="1">월</button>
+          <button type="button" data-day="2">화</button>
+          <button type="button" data-day="3">수</button>
+          <button type="button" data-day="4">목</button>
+          <button type="button" data-day="5">금</button>
+          <button type="button" data-day="6">토</button>
+          <button type="button" data-day="0">일</button>
+        </div>
+      </div>
+      <label class="field" id="tm-date-row">날짜 (비우면 오늘부터 계속 보여요)
+        <input id="tm-date" type="date">
+      </label>
+      <p class="help" id="tm-history" hidden></p>
+      <div class="menu-list">
+        <button type="button" id="tm-tomorrow">⏭ 내일로 미루기</button>
+        <button type="button" class="danger" id="tm-delete">삭제</button>
+      </div>
+      <div class="dialog-actions">
+        <span class="grow"></span>
+        <button type="button" id="tm-cancel">취소</button>
+        <button type="submit" class="primary">저장</button>
+      </div>
+    </form>
   </dialog>
 
   <dialog id="paste-dlg">

@@ -54,6 +54,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--bg);
@@ -107,7 +108,11 @@ h2 { font-size: 1.05rem; margin: 0; }
 .todo:last-child { border-bottom: 0; }
 .todo label { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; }
 .todo input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; margin: 0; }
+.todo-text { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .todo .title { overflow-wrap: anywhere; }
+.tags { display: inline-flex; gap: 6px; align-items: center; }
+.streak { font-size: .78rem; font-weight: 600; color: var(--warn); font-variant-numeric: tabular-nums; }
+.late { font-size: .72rem; color: var(--danger); }
 .todo.done .title { color: var(--muted); text-decoration: line-through; }
 .tag {
   font-size: .7rem; padding: 1px 7px; border-radius: 99px; flex: none;
@@ -124,8 +129,20 @@ h2 { font-size: 1.05rem; margin: 0; }
   flex: 1; min-width: 0; padding: 10px 12px;
   border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
 }
-.repeat { display: flex; align-items: center; gap: 4px; font-size: .85rem; color: var(--muted); flex: none; }
-.repeat input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+.repeat-select {
+  flex: none; padding: 10px 6px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--text); font-size: .9rem;
+}
+.upcoming { margin-top: 10px; font-size: .9rem; }
+.upcoming > summary { cursor: pointer; color: var(--muted); padding: 4px 0; }
+.upcoming ul { list-style: none; margin: 4px 0 0; padding: 0; }
+.up-item {
+  display: flex; gap: 10px; width: 100%; text-align: left; padding: 7px 0;
+  border: 0; border-bottom: 1px solid var(--line); background: none;
+}
+.upcoming li:last-child .up-item { border-bottom: 0; }
+.up-date { flex: none; width: 72px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.up-item .title { overflow-wrap: anywhere; min-width: 0; }
 
 .primary {
   background: var(--accent); color: #fff; border: 0;
@@ -156,12 +173,20 @@ h2 { font-size: 1.05rem; margin: 0; }
 .proj .label { color: var(--muted); font-size: .78rem; display: block; }
 .proj .next-first { font-weight: 600; }
 .next-list {
-  list-style: none; margin: 4px 0 0; padding: 0 4px 0 0; font-size: .9rem;
-  max-height: 12.5em; overflow-y: auto; overscroll-behavior: contain; /* 많으면 카드 안에서 스크롤 */
+  list-style: none; margin: 4px 0 0; padding: 0; font-size: .9rem;
 }
 .next-list li { padding: 3px 0; }
 .next-list label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
-.next-list input { width: 18px; height: 18px; margin: 1px 0 0; flex: none; accent-color: var(--accent); }
+/* 다음 과제 '확인' 체크는 할 일 체크박스와 구분되게 작은 동그라미 */
+.next-list input {
+  appearance: none; -webkit-appearance: none; flex: none;
+  width: 18px; height: 18px; margin: 1px 0 0; border-radius: 50%;
+  border: 1.5px solid var(--muted); background: var(--card); display: grid; place-content: center;
+}
+.next-list input::after { content: "✓"; font-size: 12px; line-height: 1; color: #fff; visibility: hidden; }
+.next-list input:checked { background: var(--ok); border-color: var(--ok); }
+.next-list input:checked::after { visibility: visible; }
+.next-list input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .next-list li:not(.next-first) { color: var(--muted); }
 .next-list li.done span { text-decoration: line-through; }
 .proj .meta { color: var(--muted); font-size: .75rem; margin-top: 8px; }
@@ -172,7 +197,9 @@ h2 { font-size: 1.05rem; margin: 0; }
   transform: translateX(-50%); max-width: calc(100% - 32px);
   background: var(--text); color: var(--bg);
   padding: 10px 16px; border-radius: 10px; font-size: .9rem; z-index: 10;
+  display: flex; align-items: center; gap: 14px; width: max-content;
 }
+.toast-undo { border: 0; background: none; color: var(--accent-soft); font-weight: 700; padding: 2px 0; white-space: nowrap; }
 
 dialog {
   border: 1px solid var(--line); border-radius: var(--radius);
@@ -258,3 +285,24 @@ dialog .step {
   .add { flex-wrap: wrap; }
   .add input[type="text"] { flex-basis: 100%; }
 }
+
+.stale { color: var(--warn); font-size: .8rem; margin: 8px 0 0; }
+
+/* 할 일 메뉴: 반복 요일 */
+.days { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.days button {
+  min-width: 40px; padding: 8px 10px; border-radius: 99px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: .85rem;
+}
+.days button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+dialog .field input { display: block; width: 100%; margin-top: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); }
+
+/* 당겨서 새로고침 표시 */
+.ptr {
+  position: fixed; top: calc(-44px + env(safe-area-inset-top)); left: 50%; transform: translate(-50%, 0);
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-content: center;
+  background: var(--card); border: 1px solid var(--line); color: var(--muted);
+  box-shadow: 0 2px 8px rgb(0 0 0 / .15); z-index: 20; opacity: 0; pointer-events: none;
+}
+.ptr.pulling { opacity: 1; }
+.ptr.ready { color: var(--accent); }
