@@ -21,7 +21,6 @@ const state = {
   calendar: EMPTY.calendar(),
   demo: false,
   lastWrite: {}, // file -> { oldSha, at }
-  nextScroll: {}, // 프로젝트별 다음 과제 목록 스크롤 위치 (다시 그려도 유지)
   dragging: false, // 끌어서 순서 바꾸는 중이면 다시 그리기를 미룬다
   openGroups: { paused: false, done: false }, // 홀드/완료 묶음 펼침 상태 (다시 그려도 유지)
   busy: 0,
@@ -130,11 +129,6 @@ async function writeFile(cfg, file, data, sha, message) {
 
 // 최신본을 읽고 → 변경을 적용하고 → sha와 함께 저장. 충돌(409/422)이면 다시 시도.
 async function mutate(file, change, message) {
-  if (state.demo) {
-    const next = change(structuredClone(state[file]));
-    next.updatedAt = isoNow();
-    return next;
-  }
   const cfg = getCfg();
   for (let attempt = 0; ; attempt++) {
     const { data, sha } = await readFile(cfg, file);
@@ -164,7 +158,7 @@ async function refresh({ quiet = false } = {}) {
       const [t, p, c] = await Promise.all(
         ['todos', 'projects', 'calendar'].map((f) => fetch(`demo/${f}.json`, { cache: 'no-store' }).then((r) => r.json())),
       );
-      state.todos = t;
+      state.todos = demoTodos(t);
       state.projects = p;
       state.calendar = demoCalendar(c);
       setSync('데모 데이터');
@@ -210,21 +204,86 @@ function setBusy(delta) {
 }
 
 let toastTimer;
-function toast(text) {
-  const el = $('toast');
-  el.textContent = text;
-  el.hidden = false;
+// undo를 주면 "되돌리기" 버튼을 함께 보여준다 (5초)
+function toast(text, undo) {
+  const box = $('toast');
+  box.replaceChildren(el('span', {}, text));
+  if (undo) {
+    const btn = el('button', { type: 'button', class: 'toast-undo' }, '되돌리기');
+    btn.addEventListener('click', () => { box.hidden = true; clearTimeout(toastTimer); undo(); });
+    box.append(btn);
+  }
+  box.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 3000);
+  toastTimer = setTimeout(() => { box.hidden = true; }, undo ? 5000 : 3000);
 }
 
 // ---------- 할 일 규칙 ----------
 
+// repeat: "daily"(매일) | "weekly"(days 요일만, 0=일요일) | "none"(한 번, date가 있으면 그날부터)
+const isRepeating = (item) => item.repeat === 'daily' || item.repeat === 'weekly';
+const dow = (day) => new Date(`${day}T00:00:00`).getDay();
+
+// 그날 해야 하는 반복 할 일인가
+function scheduledOn(item, day) {
+  if (item.repeat === 'daily') return true;
+  if (item.repeat === 'weekly') return Array.isArray(item.days) && item.days.includes(dow(day));
+  return false;
+}
 function isDone(item, today) {
-  return item.repeat === 'daily' ? item.doneOn === today : item.doneOn != null;
+  return isRepeating(item) ? item.doneOn === today : item.doneOn != null;
 }
 function isVisible(item, today) {
-  return item.repeat === 'daily' || item.doneOn == null || item.doneOn >= today;
+  if (isRepeating(item)) return scheduledOn(item, today) || item.doneOn === today;
+  if (item.doneOn != null) return item.doneOn >= today; // 지난 완료는 숨김
+  return !item.date || item.date <= today; // 날짜를 정했으면 그날부터
+}
+// 오늘 이전에 끝낸 한 번 할 일 ("지난 완료 항목 정리" 대상)
+function isStale(item, today) {
+  return !isRepeating(item) && item.doneOn != null && item.doneOn < today;
+}
+// 날짜를 정한 한 번 할 일 중 아직 날이 안 된 것
+function isUpcoming(item, today) {
+  return !isRepeating(item) && item.doneOn == null && item.date && item.date > today;
+}
+
+// 연속 기록: 오늘(아직 안 했으면 어제)부터 거꾸로, 해야 했던 날마다 했는지 센다. 쉬는 요일은 건너뛴다.
+function streak(item, today) {
+  if (!isRepeating(item)) return 0;
+  const done = new Set(Array.isArray(item.history) ? item.history : []);
+  if (item.doneOn) done.add(item.doneOn);
+  let day = done.has(today) ? today : addDays(today, -1);
+  let n = 0;
+  for (let i = 0; i < HISTORY_DAYS; i++, day = addDays(day, -1)) {
+    if (!scheduledOn(item, day)) continue;
+    if (!done.has(day)) break;
+    n++;
+  }
+  return n;
+}
+const HISTORY_DAYS = 90;
+function recordHistory(item, day, done) {
+  const cutoff = addDays(day, -HISTORY_DAYS);
+  const set = new Set((Array.isArray(item.history) ? item.history : []).filter((d) => d >= cutoff));
+  if (!item.history && item.doneOn && item.doneOn !== day) set.add(item.doneOn); // 기록이 생기기 전 마지막 완료일
+  if (done) set.add(day); else set.delete(day);
+  item.history = [...set].sort();
+}
+
+const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
+function repeatLabel(item) {
+  if (item.repeat === 'daily') return '매일';
+  if (item.repeat !== 'weekly' || !Array.isArray(item.days)) return '';
+  const d = [...item.days].sort((a, b) => a - b).join();
+  if (d === '1,2,3,4,5') return '평일';
+  if (d === '0,6') return '주말';
+  return [...item.days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((x) => WEEK[x]).join('·');
+}
+function fmtDay(day, today) {
+  if (day === today) return '오늘';
+  if (day === addDays(today, 1)) return '내일';
+  const [, m, d] = day.split('-').map(Number);
+  return `${m}/${d}(${WEEK[dow(day)]})`;
 }
 function newId() {
   return 't_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -237,7 +296,8 @@ async function changeFile(file, change, message) {
   render();
   setBusy(+1);
   try {
-    state[file] = await mutate(file, change, message);
+    // 데모는 저장할 곳이 없으니 화면에 반영한 것으로 끝 (change를 두 번 적용하면 추가가 중복된다)
+    if (!state.demo) state[file] = await mutate(file, change, message);
     if (!state.demo) setSync(`저장됨 · ${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`);
   } catch (e) {
     state[file] = before;
@@ -257,28 +317,176 @@ function toggleTodo(id) {
   const makeDone = target && !isDone(target, today);
   changeTodos((d) => {
     const it = d.items.find((i) => i.id === id);
-    if (it) it.doneOn = makeDone ? today : null;
+    if (!it) return d;
+    if (isRepeating(it)) {
+      recordHistory(it, today, makeDone);
+      // 완료 취소하면 doneOn을 이전 완료일로 되돌린다 (연속 기록이 끊기지 않게)
+      it.doneOn = makeDone ? today : (it.history.filter((x) => x < today).pop() || null);
+    } else {
+      it.doneOn = makeDone ? today : null;
+    }
     return d;
   }, `todo: ${makeDone ? '완료' : '완료 취소'} - ${target ? target.title : id}`);
 }
 
-function addTodo(title, daily) {
-  const item = { id: newId(), title, repeat: daily ? 'daily' : 'none', doneOn: null, createdAt: isoNow() };
+// repeat 값: 'none' | 'daily' | 'weekdays' | 'weekend' | 'custom'(days 직접)
+function repeatFields(kind, days) {
+  if (kind === 'daily') return { repeat: 'daily' };
+  if (kind === 'weekdays') return { repeat: 'weekly', days: [1, 2, 3, 4, 5] };
+  if (kind === 'weekend') return { repeat: 'weekly', days: [0, 6] };
+  if (kind === 'custom' && days && days.length) return { repeat: 'weekly', days: [...days].sort((a, b) => a - b) };
+  return { repeat: 'none' };
+}
+
+function addTodo(title, kind) {
+  const item = { id: newId(), title, ...repeatFields(kind), doneOn: null, createdAt: isoNow() };
   changeTodos((d) => { d.items.push(item); return d; }, `todo: 추가 - ${title}`);
 }
 
+function updateTodo(id, patch, message, undoText) {
+  const before = state.todos.items.find((i) => i.id === id);
+  if (!before) return;
+  const old = structuredClone(before);
+  changeTodos((d) => {
+    const it = d.items.find((i) => i.id === id);
+    if (!it) return d;
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) delete it[k]; else it[k] = v;
+    }
+    return d;
+  }, `todo: ${message} - ${before.title}`);
+  if (undoText) {
+    const keys = Object.keys(patch);
+    toast(undoText, () => updateTodo(id, Object.fromEntries(keys.map((k) => [k, old[k]])), '되돌리기'));
+  }
+}
+
 function deleteTodo(id) {
-  const target = state.todos.items.find((i) => i.id === id);
-  if (!target || !confirm(`"${target.title}" 을(를) 삭제할까요?`)) return;
-  changeTodos((d) => { d.items = d.items.filter((i) => i.id !== id); return d; }, `todo: 삭제 - ${target.title}`);
+  const list = state.todos.items;
+  const idx = list.findIndex((i) => i.id === id);
+  if (idx < 0) return;
+  const item = structuredClone(list[idx]);
+  const afterId = list[idx + 1] ? list[idx + 1].id : null;
+  changeTodos((d) => { d.items = d.items.filter((i) => i.id !== id); return d; }, `todo: 삭제 - ${item.title}`);
+  // 확인창 대신 되돌리기: 원래 자리(다음 항목 앞)에 다시 넣는다
+  toast(`"${item.title}" 삭제됨`, () => changeTodos((d) => {
+    if (d.items.some((i) => i.id === id)) return d;
+    const to = afterId ? d.items.findIndex((i) => i.id === afterId) : -1;
+    if (to < 0) d.items.push(item); else d.items.splice(to, 0, item);
+    return d;
+  }, `todo: 삭제 취소 - ${item.title}`));
 }
 
 function cleanDone() {
   const today = localDate();
   changeTodos((d) => {
-    d.items = d.items.filter((i) => isVisible(i, today));
+    d.items = d.items.filter((i) => !isStale(i, today));
     return d;
   }, 'todo: 지난 완료 항목 정리');
+}
+
+// ---------- 할 일 메뉴 (이름 수정, 반복 요일, 날짜, 내일로, 삭제) ----------
+
+const tm = { id: null, kind: 'none', days: new Set() };
+
+function openTodoMenu(id) {
+  const item = state.todos.items.find((i) => i.id === id);
+  if (!item) return;
+  const today = localDate();
+  tm.id = id;
+  tm.days = new Set(item.repeat === 'weekly' && Array.isArray(item.days) ? item.days : []);
+  tm.kind = item.repeat === 'daily' ? 'daily' : tm.days.size ? 'custom' : 'none';
+  $('tm-title').value = item.title;
+  $('tm-date').value = item.date || '';
+  $('tm-tomorrow').hidden = isRepeating(item) || isDone(item, today);
+  const hist = $('tm-history');
+  hist.hidden = !isRepeating(item);
+  if (isRepeating(item)) {
+    const from = addDays(today, -29);
+    const days = new Set([...(item.history || []), item.doneOn].filter((d) => d && d >= from));
+    hist.textContent = `최근 30일 중 ${days.size}일 완료 · 연속 ${streak(item, today)}번`;
+  }
+  renderTmDays();
+  $('todo-menu').showModal();
+}
+
+function renderTmDays() {
+  for (const b of $('tm-days').children) {
+    const on = b.dataset.kind ? b.dataset.kind === tm.kind : tm.kind === 'custom' && tm.days.has(Number(b.dataset.day));
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+  $('tm-date-row').hidden = tm.kind !== 'none';
+}
+
+function onTmDay(ev) {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  if (b.dataset.kind) {
+    tm.kind = b.dataset.kind;
+    tm.days.clear();
+  } else {
+    const d = Number(b.dataset.day);
+    if (tm.kind !== 'custom') tm.days.clear();
+    if (tm.days.has(d)) tm.days.delete(d); else tm.days.add(d);
+    tm.kind = tm.days.size === 7 ? 'daily' : tm.days.size ? 'custom' : 'none';
+    if (tm.kind === 'daily') tm.days.clear();
+  }
+  renderTmDays();
+}
+
+function saveTodoMenu(ev) {
+  ev.preventDefault();
+  const title = $('tm-title').value.trim();
+  if (!title) return;
+  const r = repeatFields(tm.kind, [...tm.days]);
+  const date = r.repeat === 'none' ? $('tm-date').value || undefined : undefined;
+  const item = state.todos.items.find((i) => i.id === tm.id);
+  $('todo-menu').close();
+  if (!item) return;
+  const patch = { title, repeat: r.repeat, days: r.days, date };
+  const same = Object.entries(patch).every(([k, v]) => JSON.stringify(item[k]) === JSON.stringify(v));
+  if (!same) updateTodo(tm.id, patch, '수정');
+}
+
+function postponeTodo() {
+  $('todo-menu').close();
+  const tomorrow = addDays(localDate(), 1);
+  updateTodo(tm.id, { date: tomorrow }, `내일(${tomorrow})로 미룸`, '내일로 미뤘어요');
+}
+
+// ---------- 화면을 아래로 당겨서 새로고침 ----------
+
+function setupPullToRefresh() {
+  const ind = $('ptr');
+  const LIMIT = 70;
+  let startY = null;
+  let dist = 0;
+  const reset = () => {
+    startY = null;
+    dist = 0;
+    ind.style.transform = '';
+    ind.classList.remove('ready', 'pulling');
+  };
+  document.addEventListener('touchstart', (e) => {
+    if (window.scrollY > 0 || state.dragging || document.querySelector('dialog[open]') || e.touches.length > 1) return;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (startY == null) return;
+    dist = e.touches[0].clientY - startY;
+    if (dist <= 0 || window.scrollY > 0) { reset(); return; }
+    const y = Math.min(dist * 0.5, LIMIT + 20);
+    ind.classList.add('pulling');
+    ind.classList.toggle('ready', dist * 0.5 >= LIMIT);
+    ind.style.transform = `translate(-50%, ${y}px) rotate(${y * 4}deg)`;
+  }, { passive: true });
+  const end = () => {
+    if (startY != null && dist * 0.5 >= LIMIT) refresh();
+    reset();
+  };
+  document.addEventListener('touchend', end);
+  document.addEventListener('touchcancel', reset);
 }
 
 // ---------- 그리기 ----------
@@ -302,7 +510,7 @@ function render() {
   bar.style.width = `${pct}%`;
   bar.classList.toggle('full', pct === 100);
   $('todo-empty').hidden = visible.length > 0;
-  $('clean-done').hidden = visible.length === all.length;
+  $('clean-done').hidden = !all.some((i) => isStale(i, today));
 
   const list = $('todo-list');
   list.replaceChildren(...visible.map((item) => {
@@ -312,15 +520,39 @@ function render() {
     const cb = el('input', { type: 'checkbox' });
     cb.checked = done;
     cb.addEventListener('change', () => toggleTodo(item.id));
-    label.append(cb, el('span', { class: 'title' }, item.title));
-    if (item.repeat === 'daily') label.append(el('span', { class: 'tag' }, '매일'));
-    const del = el('button', { class: 'del', type: 'button', 'aria-label': `${item.title} 삭제`, title: '삭제' }, '✕');
-    del.addEventListener('click', () => deleteTodo(item.id));
+    const text = el('span', { class: 'todo-text' }, el('span', { class: 'title' }, item.title));
+    const tags = el('span', { class: 'tags' });
+    const rep = repeatLabel(item);
+    if (rep) tags.append(el('span', { class: 'tag' }, rep));
+    const s = streak(item, today);
+    if (s >= 2) tags.append(el('span', { class: 'streak', title: `${s}번 연속` }, `🔥${s}`));
+    if (!isRepeating(item) && !done && item.date && item.date < today) {
+      const late = Math.round((new Date(`${today}T00:00:00`) - new Date(`${item.date}T00:00:00`)) / 86400000);
+      tags.append(el('span', { class: 'late' }, `${late}일 지남`));
+    }
+    if (tags.childNodes.length) text.append(tags);
+    label.append(cb, text);
+    const more = el('button', { class: 'del', type: 'button', 'aria-label': `${item.title} 메뉴`, title: '수정·미루기·삭제' }, '⋯');
+    more.addEventListener('click', () => openTodoMenu(item.id));
     // 끝낸 항목은 옮길 수 없지만 줄을 맞추려고 빈 자리를 둔다
     li.append(done ? el('span', { class: 'handle spacer', 'aria-hidden': 'true' }) : handle(item.title));
-    li.append(label, del);
+    li.append(label, more);
     return li;
   }));
+
+  // 날짜를 정해 둔 할 일 (아직 날이 안 됨)
+  const upcoming = all.filter((i) => isUpcoming(i, today)).sort((a, b) => a.date.localeCompare(b.date));
+  const up = $('todo-upcoming');
+  up.hidden = !upcoming.length;
+  if (upcoming.length) {
+    $('todo-upcoming-title').textContent = `예정 ${upcoming.length}개`;
+    $('todo-upcoming-list').replaceChildren(...upcoming.map((item) => {
+      const b = el('button', { type: 'button', class: 'up-item' },
+        el('span', { class: 'up-date' }, fmtDay(item.date, today)), el('span', { class: 'title' }, item.title));
+      b.addEventListener('click', () => openTodoMenu(item.id));
+      return el('li', {}, b);
+    }));
+  }
 
   // 프로젝트
   const order = { active: 0, paused: 1, done: 2 };
@@ -393,8 +625,6 @@ function renderProject(p) {
       ...open.map((n, i) => item(n, false, i === 0)),
       ...checked.map((c) => item(c.text, true, false)),
     );
-    list.addEventListener('scroll', () => { state.nextScroll[p.id] = list.scrollTop; });
-    requestAnimationFrame(() => { list.scrollTop = state.nextScroll[p.id] || 0; });
     const title = `다음 과제${open.length ? ` ${open.length}` : ''}${checked.length ? ` · 확인 ${checked.length}` : ''}`;
     card.append(el('div', { class: 'row' }, el('span', { class: 'label' }, title), list));
   }
@@ -436,6 +666,11 @@ function renderCalendar(today, now) {
   $('cal-tomorrow').textContent = tomorrow.length
     ? `내일 ${tomorrow.length}개 · ${tomorrow.slice(0, 2).map((e) => (e.allDay ? '' : `${fmtTime(e.start)} `) + e.title).join(', ')}${tomorrow.length > 2 ? ' …' : ''}`
     : '';
+  // Apps Script는 날짜가 바뀌면 10분 안에 파일을 새로 쓴다. 오늘 날짜가 아니면 자동 동기화가 멈춘 것.
+  const stale = !missing && !state.demo && state.calendar.rangeStart && state.calendar.rangeStart < today
+    && now.getHours() * 60 + now.getMinutes() >= 30;
+  $('cal-stale').hidden = !stale;
+  if (stale) $('cal-stale').textContent = `⚠ 캘린더 자동 동기화가 멈춘 것 같아요 (마지막 ${fmtDay(state.calendar.rangeStart, today)}). Apps Script 실행 기록을 확인해 주세요.`;
   card.hidden = false;
   $('cal-list').replaceChildren(...events.map((e) => {
     const past = !e.allDay && new Date(e.end || e.start) <= now;
@@ -449,6 +684,15 @@ function renderCalendar(today, now) {
     li.append(el('span', { class: 'ev-time' }, when), dot, body);
     return li;
   }));
+}
+
+// 데모 할 일의 "D-1", "D+2" 같은 날짜를 오늘 기준 실제 날짜로 바꾼다
+function demoTodos(t) {
+  const today = localDate();
+  const conv = (v) => (typeof v === 'string' && /^D[+-]\d+$/.test(v) ? addDays(today, Number(v.slice(1))) : v);
+  return { ...t, items: t.items.map((i) => ({
+    ...i, doneOn: conv(i.doneOn), date: conv(i.date), ...(i.history ? { history: i.history.map(conv) } : {}),
+  })) };
 }
 
 // 데모 파일의 일정 날짜를 오늘/내일로 옮긴다
@@ -802,9 +1046,9 @@ function init() {
     ev.preventDefault();
     const title = $('add-title').value.trim();
     if (!title) return;
-    addTodo(title, $('add-daily').checked);
+    addTodo(title, $('add-repeat').value);
     $('add-title').value = '';
-    $('add-daily').checked = false;
+    $('add-repeat').value = 'none';
   });
   $('clean-done').addEventListener('click', cleanDone);
   $('refresh').addEventListener('click', () => refresh());
@@ -816,6 +1060,12 @@ function init() {
     btn.addEventListener('click', () => setProjectStatus(btn.dataset.status));
   }
   $('pm-remove').addEventListener('click', removeProject);
+  $('tm-days').addEventListener('click', onTmDay);
+  $('tm-form').addEventListener('submit', saveTodoMenu);
+  $('tm-cancel').addEventListener('click', () => $('todo-menu').close());
+  $('tm-tomorrow').addEventListener('click', postponeTodo);
+  $('tm-delete').addEventListener('click', () => { $('todo-menu').close(); deleteTodo(tm.id); });
+  setupPullToRefresh();
   document.addEventListener('pointerdown', startDrag);
   $('pm-close').addEventListener('click', () => $('proj-menu').close());
   $('pm-paste').addEventListener('click', () => { $('proj-menu').close(); openPaste(menuProjectId); });
