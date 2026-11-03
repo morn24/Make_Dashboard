@@ -85,7 +85,7 @@ button { cursor: pointer; }
   background: var(--accent-soft); font-size: .9rem;
 }
 
-main { max-width: 640px; margin: 0 auto; padding: 0 16px 32px; }
+main { max-width: 640px; margin: 0 auto; padding: 0 16px 32px; overflow-x: clip; }
 .card {
   background: var(--card); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 16px; margin-bottom: 20px;
@@ -135,10 +135,11 @@ h2 { font-size: 1.05rem; margin: 0; }
 .small { font-size: .85rem; margin-top: 8px; }
 .empty { color: var(--muted); font-size: .9rem; margin: 12px 0 0; }
 
-.projects { display: grid; gap: 12px; }
+.projects { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; } /* 내용이 길어도 화면 폭을 넘지 않게 */
 .proj {
   background: var(--card); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 14px 16px;
+  min-width: 0; overflow-wrap: anywhere; /* 띄어쓰기 없는 긴 글자(파일명·주소)도 줄바꿈 */
 }
 .proj.paused, .proj.done { opacity: .72; }
 .proj-head { display: flex; align-items: center; gap: 8px; }
