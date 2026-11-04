@@ -323,3 +323,4 @@ dialog .field input { display: block; width: 100%; margin-top: 4px; padding: 10p
   background: none; border: 1px solid var(--line); padding: 9px 12px; border-radius: 10px;
 }
 #tm-sync:empty { display: none; }
+.gcal { text-decoration: none; white-space: nowrap; }

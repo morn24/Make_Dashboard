@@ -34,7 +34,10 @@
     <section class="card" id="cal-card" aria-labelledby="cal-title" hidden>
       <div class="section-head">
         <h2 id="cal-title">오늘 일정</h2>
-        <span class="count" id="cal-count"></span>
+        <span class="head-right">
+          <span class="count" id="cal-count"></span>
+          <a class="link small-btn gcal" id="open-gcal" href="https://calendar.google.com/calendar/r" rel="noopener">Google 캘린더 ↗</a>
+        </span>
       </div>
       <ul class="events" id="cal-list"></ul>
       <p class="empty" id="cal-empty" hidden>오늘은 일정이 없어요.</p>

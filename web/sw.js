@@ -3,7 +3,7 @@
 // 2) 알림: Apps Script가 알릴 시각에 내용 없는 푸시(신호)만 보내면, 여기서 할 일을 읽어 알림을 만든다.
 importScripts('rules.js');
 
-const CACHE = 'dash-shell-v10';
+const CACHE = 'dash-shell-v11';
 const PRIVATE_CACHE = 'dash-private'; // 앱이 넣어 둔 연결 정보(cfg). 버전이 바뀌어도 지우지 않는다
 const SHELL = ['./', 'index.html', 'style.css', 'rules.js', 'app.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/badge-96.png'];
