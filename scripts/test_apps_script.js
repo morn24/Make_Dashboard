@@ -207,4 +207,28 @@ test('알림 일정: 10분 전 + 오후 5시 묶음, 때가 되면 한 번만 �
   assert.strictEqual(calls.filter((c) => c[0] === 'push').length, 1);
 });
 
+test('날짜 없는 한 번 할 일은 오늘 날짜를 넣고, 이미 연결된 것은 Google 마감일도 오늘로', () => {
+  const { ctx, github, tasks } = makeContext();
+  github['data/todos.json'] = todos([
+    { id: 't1', title: '예전 할 일', repeat: 'none', doneOn: null, gtask: 'gOld', gsync: '["예전 할 일","","",0]' },
+    { id: 't2', title: '새 할 일', repeat: 'none', doneOn: null },
+    { id: 't3', title: '끝난 일', repeat: 'none', doneOn: '2026-11-04' },
+    { id: 't4', title: '듀오링고', repeat: 'daily', doneOn: null },
+  ]);
+  tasks.push({ id: 'gOld', title: '예전 할 일', status: 'needsAction' });
+  tasks.push({ id: 'gNew', title: 'Google에서 만든 일', status: 'needsAction' });
+  ctx.syncTasks();
+  const items = github['data/todos.json'].data.items;
+  const by = (id) => items.find((i) => i.id === id);
+  assert.strictEqual(by('t1').date, '2026-11-04');
+  assert.strictEqual(by('t2').date, '2026-11-04');
+  assert.strictEqual(by('t3').date, undefined);
+  assert.strictEqual(by('t4').date, undefined);
+  assert.strictEqual(tasks.find((t) => t.id === 'gOld').due, '2026-11-04T00:00:00.000Z');
+  assert.strictEqual(tasks.find((t) => t.title === '새 할 일').due, '2026-11-04T00:00:00.000Z');
+  assert.strictEqual(items.find((i) => i.gtask === 'gNew').date, '2026-11-04');
+  ctx.syncTasks(); // 다음 동기화: Google에서 만든 일도 마감일이 오늘로
+  assert.strictEqual(tasks.find((t) => t.id === 'gNew').due, '2026-11-04T00:00:00.000Z');
+});
+
 console.log(`\n${passed}개 통과`);
