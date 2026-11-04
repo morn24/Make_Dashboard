@@ -141,7 +141,7 @@ h2 { font-size: 1.05rem; margin: 0; }
   border: 0; border-bottom: 1px solid var(--line); background: none;
 }
 .upcoming li:last-child .up-item { border-bottom: 0; }
-.up-date { flex: none; width: 72px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.up-date { flex: none; min-width: 72px; color: var(--accent); font-variant-numeric: tabular-nums; }
 .up-item .title { overflow-wrap: anywhere; min-width: 0; }
 
 .primary {
@@ -306,3 +306,20 @@ dialog .field input { display: block; width: 100%; margin-top: 4px; padding: 10p
 }
 .ptr.pulling { opacity: 1; }
 .ptr.ready { color: var(--accent); }
+
+/* 입력 중 날짜·시간 미리보기, 할 일 시간 */
+.add-hint { font-size: .8rem; color: var(--accent); margin: 6px 2px 0; }
+.todo-time {
+  font-size: .78rem; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums;
+  padding: 1px 6px; border-radius: 6px; background: var(--accent-soft);
+}
+
+/* 설정 > 알림 */
+.notify-box { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
+.notify-box h3 { font-size: .95rem; margin: 0 0 4px; }
+.notify-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+.notify-actions .step { width: auto; margin: 0; }
+.notify-actions button:not(.step):not(.link) {
+  background: none; border: 1px solid var(--line); padding: 9px 12px; border-radius: 10px;
+}
+#tm-sync:empty { display: none; }
