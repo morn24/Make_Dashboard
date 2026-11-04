@@ -160,6 +160,12 @@ function syncTasks() {
 
   items.forEach((item) => {
     const repeating = item.repeat === 'daily' || item.repeat === 'weekly';
+    // 날짜 없는 한 번 할 일(아직 안 끝난 것)은 오늘 날짜를 넣는다 → Google 캘린더 오늘 칸에 보이게.
+    // 이미 연결된 할 일이면 아래에서 "대시보드가 바뀜"으로 보고 Google 마감일도 오늘로 맞춘다.
+    if (!repeating && !item.doneOn && !item.date) {
+      item.date = today;
+      ops.push({ op: 'set', id: item.id, fields: { date: today } });
+    }
     if (item.gtask) {
       const task = byId[item.gtask];
       if (repeating) { // 반복으로 바뀜 → Google에서 빼고 연결 해제
@@ -210,7 +216,7 @@ function syncTasks() {
       createdAt: Utilities.formatDate(new Date(), tz, "yyyy-MM-dd'T'HH:mm:ssXXX"),
       gtask: task.id, gsync: taskState_(task),
     };
-    if (f.date) item.date = f.date;
+    if (f.date || !f.doneOn) item.date = f.date || today; // 날짜 없으면 오늘 (다음 동기화 때 Google 마감일도 오늘로)
     if (f.time) item.time = f.time;
     ops.push({ op: 'add', item: item });
     nextKnown.add(task.id);
