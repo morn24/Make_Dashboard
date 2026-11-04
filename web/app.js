@@ -446,6 +446,17 @@ function setupPullToRefresh() {
   document.addEventListener('touchcancel', reset);
 }
 
+// ---------- Google 캘린더 앱 열기 ----------
+// 안드로이드: intent 주소로 Google 캘린더 앱의 오늘 화면을 연다. 앱이 없으면 웹 캘린더로.
+// 그 밖의 기기: 웹 캘린더 (아이폰은 Google 캘린더 앱이 있으면 이 링크를 앱으로 연다)
+function gcalUrl(day) {
+  const [y, m, d] = day.split('-').map(Number);
+  const path = `calendar.google.com/calendar/r/day/${y}/${m}/${d}`;
+  if (!/Android/i.test(navigator.userAgent)) return `https://${path}`;
+  return `intent://${path}#Intent;scheme=https;package=com.google.android.calendar;`
+    + `S.browser_fallback_url=${encodeURIComponent(`https://${path}`)};end`;
+}
+
 // ---------- 그리기 ----------
 
 function render() {
@@ -615,6 +626,7 @@ function renderCalendar(today, now) {
   $('cal-setup').hidden = !missing;
   const events = missing ? [] : eventsOn(today);
   $('cal-count').textContent = events.length ? `${events.length}개` : '';
+  $('open-gcal').href = gcalUrl(today);
   $('cal-empty').hidden = missing || events.length > 0;
   const tomorrow = missing ? [] : eventsOn(addDays(today, 1));
   $('cal-tomorrow').textContent = tomorrow.length
