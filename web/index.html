@@ -57,7 +57,7 @@
       <p class="empty" id="todo-empty" hidden>할 일이 없어요. 아래에서 추가해 보세요.</p>
 
       <form class="add" id="add-form" autocomplete="off">
-        <input id="add-title" type="text" placeholder="할 일 추가" maxlength="120" required>
+        <input id="add-title" type="text" placeholder="할 일 (예: 3시 병원)" maxlength="120" required>
         <select id="add-repeat" class="repeat-select" aria-label="반복">
           <option value="none">한 번</option>
           <option value="daily">매일</option>
@@ -66,6 +66,7 @@
         </select>
         <button type="submit" class="primary">추가</button>
       </form>
+      <p class="add-hint" id="add-hint" hidden></p>
       <details class="upcoming" id="todo-upcoming" hidden>
         <summary id="todo-upcoming-title"></summary>
         <ul id="todo-upcoming-list"></ul>
@@ -98,6 +99,15 @@
       <label>토큰 (Fine-grained PAT)<input id="s-token" type="password" required placeholder="github_pat_..."></label>
       <p class="help">권한: 위 저장소 하나만, <b>Contents: Read and write</b>.</p>
       <p class="error" id="s-error" hidden></p>
+      <div class="notify-box">
+        <h3>알림</h3>
+        <p class="help" id="push-status"></p>
+        <div class="notify-actions">
+          <button type="button" class="step" id="push-on" hidden>🔔 알림 켜기</button>
+          <button type="button" id="push-test" hidden>테스트 알림</button>
+          <button type="button" class="link" id="push-off" hidden>알림 끄기</button>
+        </div>
+      </div>
       <div class="dialog-actions">
         <button type="button" class="link" id="s-clear">연결 해제</button>
         <span class="grow"></span>
@@ -145,7 +155,11 @@
       <label class="field" id="tm-date-row">날짜 (비우면 오늘부터 계속 보여요)
         <input id="tm-date" type="date">
       </label>
+      <label class="field">시작 시간 (있으면 10분 전에 알림)
+        <input id="tm-time" type="time">
+      </label>
       <p class="help" id="tm-history" hidden></p>
+      <p class="help" id="tm-sync"></p>
       <div class="menu-list">
         <button type="button" id="tm-tomorrow">⏭ 내일로 미루기</button>
         <button type="button" class="danger" id="tm-delete">삭제</button>
@@ -187,6 +201,7 @@
     </div>
   </dialog>
 
+  <script src="rules.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

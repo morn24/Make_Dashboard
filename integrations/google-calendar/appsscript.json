@@ -1,10 +1,15 @@
 {
   "timeZone": "Asia/Seoul",
-  "dependencies": {},
+  "dependencies": {
+    "enabledAdvancedServices": [
+      { "userSymbol": "Tasks", "version": "v1", "serviceId": "tasks" }
+    ]
+  },
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8",
   "oauthScopes": [
     "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/tasks",
     "https://www.googleapis.com/auth/script.external_request",
     "https://www.googleapis.com/auth/script.scriptapp"
   ]
