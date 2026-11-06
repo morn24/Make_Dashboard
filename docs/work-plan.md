@@ -43,7 +43,7 @@
 | 1 | 데이터 구조 설계 + 데이터 저장소 생성 | 클라우드 | ✅ 완료 |
 | 2 | 웹앱 대시보드 (PWA) + GitHub Pages 배포 설정 | 클라우드 | ✅ 완료 (https://morn24.github.io/Make_Dashboard/ 배포, 폰 설치) |
 | 3 | PC 자동 업데이트: `dash_update.py` + Codex/Claude Code 규칙 | **로컬 PC** | ✅ 완료 ([설치 안내](pc-setup.md), [전역 규칙](agent-rule.md)). Claude Code·Codex 자동 갱신 확인 |
-| 4 | 안드로이드 위젯 앱 | **로컬 PC** (Android Studio) | ⏸ 후속 개선 보류 (PWA에 집중). 앱 구현·자동 검증 완료 (51개 테스트, APK 빌드 통과). Galaxy S25 화면·상호 반영 사용자 확인 대기. [설치 안내](android-setup.md) · [검증 기록](android-verification.md) |
+| 4 | 안드로이드 위젯 앱 | **로컬 PC** (Android Studio) | ⏸ 후속 개선 보류 (PWA에 집중). 앱 구현·자동 검증 완료. 연결된 Galaxy S20에서 크기·다크 팔레트 실제 렌더 확인, Galaxy S25 화면·상호 반영 사용자 확인 대기. [설치 안내](android-setup.md) · [초기 검증](android-verification.md) · [레이아웃·색상 검증](android-layout-colors-verification.md) |
 | 5 | Google 캘린더 오늘 일정 연동 (Apps Script → `calendar.json`) | 브라우저 (script.google.com) | ✅ 완료 (Apps Script 설치, [설정 안내](google-calendar-setup.md)) |
 
 ### 단계 3: PC 자동 업데이트 (예상 1~2시간)
@@ -53,6 +53,8 @@
 
 ### 단계 4: 안드로이드 위젯 (예상 반나절~하루)
 
+- 2026-11-01 추가 목록/색상 수정 승인: 고정 1개·take 제한·비스크롤 패널을 검수하고 높이별 가시량 증가, 영역별 네이티브 스크롤, 실제 캘린더 색상 손실 단계 진단, 레드/오렌지/옐로 조합 3종 추가를 구체화했다. [업무계획서](android-scroll-colors-work-plan.md)와 [Luna(max) 수행지시문 05](instructions/05-android-scroll-colors-luna.md)로 새 구현 세션에 인계한다. 실제 제스처/개인 Google 확인은 별도 증거가 필요하다.
+- 2026-11-01 시각 개선 구현 완료: 4×4 좌우 2단·4×2 가로·2×2 요약, Google 일정 색상 원형 마커, 영역별 배경, 네 다크 팔레트를 구현하고 연결된 Galaxy S20에서 실제 렌더를 확인했다. `test assembleDebug lintDebug`와 Apps Script 색상 fixture 테스트가 통과했고 업데이트 APK를 만들었다. [업무계획서](android-layout-colors-work-plan.md) · [검증 기록과 캡처](android-layout-colors-verification.md). 개인 계정의 Apps Script 적용과 Galaxy S25 최종 확인은 남아 있다.
 - 구체 설계·검증 게이트: [안드로이드 위젯 업무계획서](android-work-plan.md). 별도 Luna(`gpt-6-luna`)·max 세션은 [구현 수행지시문](instructions/02-android-widget-luna.md)을 따른다.
 - 2026-10-31 자동 구현 기록: Kotlin/Glance 3크기 위젯, 암호화 설정, GitHub 읽기·체크 Worker, 30분/현지 자정 예약 구현. `gradlew.bat test assembleDebug` 통과, JUnit 51개 통과. 오프라인 캐시·체크 오류/원복과 현지 자정/DST 규칙은 단위 테스트로 확인했다. 실제 Galaxy S25 표시·수동 체크와 웹앱 간 상호 반영은 아직 미확인이다. 설치 절차는 [Android 설치 안내](android-setup.md)에 있다.
 - 2026-11-01 개선판 구현 완료: 위젯별 꾸미기·즉시 체크/실행 취소·크기별 레이아웃·부분 동기화 상태·일정 경계 재렌더·관리 홈/위젯 추가를 구현했다. Pixel 6a API 37 에뮬레이터 렌더와 69개 단위 테스트, `test assembleDebug lintDebug`를 통과했고 업데이트용 APK 및 대응표를 만들었다. Galaxy S25 실기기 표시와 위젯↔웹앱 데이터 왕복은 사용자가 확인해야 하므로 미완료 상태다. [개선판 검증 기록](android-ux-verification.md).

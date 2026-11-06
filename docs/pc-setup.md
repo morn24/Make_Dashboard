@@ -91,6 +91,7 @@ python "$HOME/.dashboard/dash_update.py" remove --id test --yes
 - Codex: `~/.codex/AGENTS.md` (Windows: `%USERPROFILE%\.codex\AGENTS.md`), 그리고 [네트워크 허용](agent-rule.md#codex에서-네트워크-허용하기)
 
 이제 아무 프로젝트에서 AI에게 작업을 시키면, 작업이 끝날 때 대시보드가 저절로 바뀝니다.
+기록은 사용 가능한 기능·큰 단계·중요한 다음 행동 중심으로 정리합니다. 새 다음 과제는 중요한 1~3개만 고르고, 개발 세부 작업은 같은 결과 아래 묶습니다. 기존 설치에서는 전역 규칙의 대시보드 부분을 최신 문구로 교체하면 이 기준을 적용할 수 있습니다.
 이미 진행 중이거나 홀드해 둔 프로젝트를 올리려면 [`docs/existing-projects.md`](existing-projects.md)를 보세요.
 
 ## 참고: 명령 모음

@@ -25,7 +25,6 @@ const CONFIG = {
   alertBeforeMinutes: 10, // 시간 있는 할 일 알림: 시작 몇 분 전
   summaryHour: 17, // 이 시각에 "못 한 일"과 "내일 할 일" 묶음 알림
   pushContact: 'https://morn24.github.io/Make_Dashboard/', // 푸시 서버에 알리는 연락처 (VAPID sub)
-
   paletteCacheSeconds: 3600,
   labelCacheSeconds: 300,
   fallbackEventColor: '#9AA0A6',
@@ -36,7 +35,6 @@ const COLOR_COLLECTOR_VERSION = 'calendar-color-collector-3';
 // 실행 중 여러 캘린더가 같은 event palette를 요청해도 Colors.get은 한 번만 호출한다.
 let EVENT_COLOR_PALETTE_ = null;
 let COLOR_DIAGNOSTICS_ = null;
-
 
 const PROPS = PropertiesService.getScriptProperties();
 

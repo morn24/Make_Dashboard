@@ -8,6 +8,10 @@
 - `docs/instructions/`: 로컬 PC에서 AI에게 맡길 **수행지시문**
   - `01-pc-update.md`: PC 자동 업데이트 스크립트
   - `02-android-widget.md`: 안드로이드 홈 화면 위젯
+  - `02-android-widget-luna.md`: 구체 설계를 따른 Luna(max) 구현 수행지시문 ([업무계획서](docs/android-work-plan.md))
+  - `03-android-widget-ux-luna.md`: 꾸미기·반응 속도·UI/UX 개선 전체 구현 지시문 ([개선 업무계획서](docs/android-ux-work-plan.md), [검토서](docs/android-ui-ux-review.md))
+  - `04-android-layout-colors-luna.md`: 2단 레이아웃·일정 원색·영역 배경·다크 조합 개선 지시문 ([업무계획서](docs/android-layout-colors-work-plan.md))
+  - `05-android-scroll-colors-luna.md`: 높이 확장·영역별 실제 스크롤·캘린더 색상 복구·따뜻한 팔레트 지시문 ([업무계획서](docs/android-scroll-colors-work-plan.md))
 - `scripts/dash_update.py`: PC에서 프로젝트 진행 상황을 기록하는 스크립트 ([설치 안내](docs/pc-setup.md), [AI 전역 규칙](docs/agent-rule.md), [기존 프로젝트 올리기](docs/existing-projects.md))
 - `docs/google-calendar-setup.md`: Google 캘린더 오늘 일정 연결 (Apps Script, 약 10분)
 - `integrations/google-calendar/`: 캘린더 동기화 Apps Script 코드
@@ -61,4 +65,4 @@ cd web && python3 -m http.server 8000
 
 ## 다음 단계 (로컬 PC)
 
-`docs/work-plan.md`의 단계 3과 4를 각 수행지시문으로 진행합니다.
+Android 위젯 개선판의 설치·실기기 확인은 [설치 안내](docs/android-setup.md), [기존 UX 검증](docs/android-ux-verification.md), [레이아웃·색상 검증](docs/android-layout-colors-verification.md)을 참고하세요. 폰 대시보드의 사용자 확인을 반영해 Galaxy S25 기본 표시·개선판 사용성과 위젯↔웹앱 상호 반영, 개인 캘린더 연결 설정을 완료 처리했습니다. 최신 목록 확장과 실제 일정 색상은 폰에서 최종 확인할 항목입니다.

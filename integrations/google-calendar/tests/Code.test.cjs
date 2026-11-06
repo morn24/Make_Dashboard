@@ -261,6 +261,10 @@ test('a color-only calendar change writes the existing color field once, then un
   assert.equal(setupScript.writes[0].events[0].color, '#E53935');
   assert.equal(setupScript.writes[0].events[0].id, remoteEvents[0].id);
   assert.equal(setupScript.writes[0].version, 1);
+  const githubRequests = setupScript.requests.filter((request) => request.url.includes('api.github.com'));
+  assert.ok(githubRequests.length >= 2);
+  assert.ok(githubRequests.every((request) => request.url.includes('/contents/data/calendar.json')));
+
 
   setupScript.context.syncCalendar();
   assert.equal(setupScript.writes.length, 1);
@@ -326,6 +330,7 @@ test('diagnoseCalendarColors reports only safe HTTP stages and color counts', ()
   assert.ok(statuses.includes('palette:401'));
   assert.ok(statuses.includes('labels:403'));
   assert.ok(statuses.includes('events_labels_page_1:429'));
+  assert.ok(app.requests.some((request) => request.url.includes('/contents/data/calendar.json?')));
   assert.equal(report.remoteCalendarJson.eventCount, 3);
   assert.equal(report.remoteCalendarJson.validHexColors, 2);
   assert.equal(report.remoteCalendarJson.distinctHexColors, 2);
