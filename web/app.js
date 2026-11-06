@@ -1,8 +1,15 @@
 'use strict';
 
 // 데이터 형식은 docs/data-format.md 참고
-const FILES = { todos: 'data/todos.json', projects: 'data/projects.json', calendar: 'data/calendar.json', push: 'data/push.json' };
+const FILES = {
+  todos: 'data/todos.json', projects: 'data/projects.json', calendar: 'data/calendar.json', push: 'data/push.json',
+  pmr: 'data/pmr-wiki.json', pmrCmd: 'data/pmr-commands.json',
+};
 const EMPTY = {
+  // PMR-Wiki 상태는 PC(tools/dash_sync.py)만 쓴다. 아직 없으면 missing=true (안내 표시)
+  pmr: () => ({ version: 1, generatedAt: null, jobs: [], missing: true }),
+  // 폰 버튼 명령: 폰이 pending으로 추가하고 PC가 실행 후 done/failed로 바꾼다
+  pmrCmd: () => ({ version: 1, updatedAt: null, items: [] }),
   todos: () => ({ version: 1, updatedAt: null, items: [] }),
   projects: () => ({ version: 1, updatedAt: null, projects: [] }),
   // 캘린더 파일은 Google Apps Script가 만든다. 아직 없으면 missing=true (연결 안내 표시)
@@ -21,6 +28,9 @@ const state = {
   todos: EMPTY.todos(),
   projects: EMPTY.projects(),
   calendar: EMPTY.calendar(),
+  pmr: EMPTY.pmr(),
+  pmrCmd: EMPTY.pmrCmd(),
+  tab: 'home',
   demo: false,
   lastWrite: {}, // file -> { oldSha, at }
   dragging: false, // 끌어서 순서 바꾸는 중이면 다시 그리기를 미룬다
@@ -153,22 +163,28 @@ async function refresh({ quiet = false } = {}) {
   setBusy(+1);
   try {
     if (state.demo) {
-      const [t, p, c] = await Promise.all(
-        ['todos', 'projects', 'calendar'].map((f) => fetch(`demo/${f}.json`, { cache: 'no-store' }).then((r) => r.json())),
+      const [t, p, c, w] = await Promise.all(
+        ['todos', 'projects', 'calendar', 'pmr-wiki'].map((f) => fetch(`demo/${f}.json`, { cache: 'no-store' }).then((r) => r.json())),
       );
       state.todos = demoTodos(t);
       state.projects = p;
       state.calendar = demoCalendar(c);
+      state.pmr = w;
       setSync('데모 데이터');
     } else {
-      const [t, p, c] = await Promise.all([readFile(cfg, 'todos'), readFile(cfg, 'projects'), readFile(cfg, 'calendar')]);
+      const [t, p, c, w, m] = await Promise.all(
+        ['todos', 'projects', 'calendar', 'pmr', 'pmrCmd'].map((f) => readFile(cfg, f)),
+      );
       state.calendar = c.data;
-      for (const [file, got] of [['todos', t], ['projects', p]]) {
-        const w = state.lastWrite[file];
-        const stale = w && Date.now() - w.at < STALE_GUARD_MS && got.sha === w.oldSha;
+      state.pmr = w.data;
+      for (const [file, got] of [['todos', t], ['projects', p], ['pmrCmd', m]]) {
+        const lw = state.lastWrite[file];
+        const stale = lw && Date.now() - lw.at < STALE_GUARD_MS && got.sha === lw.oldSha;
         if (!stale) state[file] = got.data;
       }
-      save(CACHE_KEY, { todos: state.todos, projects: state.projects, calendar: state.calendar, at: Date.now() });
+      save(CACHE_KEY, {
+        todos: state.todos, projects: state.projects, calendar: state.calendar, pmr: state.pmr, pmrCmd: state.pmrCmd, at: Date.now(),
+      });
       setSync(`동기화됨 · ${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`);
     }
   } catch (e) {
@@ -232,10 +248,12 @@ async function changeFile(file, change, message) {
     // 데모는 저장할 곳이 없으니 화면에 반영한 것으로 끝 (change를 두 번 적용하면 추가가 중복된다)
     if (!state.demo) state[file] = await mutate(file, change, message);
     if (!state.demo) setSync(`저장됨 · ${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`);
+    return true;
   } catch (e) {
     state[file] = before;
     toast(`저장 실패: ${errorText(e)}`);
     refresh({ quiet: true });
+    return false;
   } finally {
     setBusy(-1);
     render();
@@ -243,6 +261,7 @@ async function changeFile(file, change, message) {
 }
 const changeTodos = (change, message) => changeFile('todos', change, message);
 const changeProjects = (change, message) => changeFile('projects', change, message);
+const changePmrCmd = (change, message) => changeFile('pmrCmd', change, message);
 
 function toggleTodo(id) {
   const today = localDate();
@@ -464,6 +483,8 @@ function render() {
   const today = localDate();
   const now = new Date();
   $('today').textContent = now.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
+  renderTabs();
+  renderPmr();
   renderCalendar(today, now);
 
   // 할 일
@@ -601,6 +622,171 @@ function renderProject(p) {
   const meta = [p.summary, timeAgo(p.updatedAt)].filter(Boolean).join(' · ');
   if (meta) card.append(el('div', { class: 'meta' }, meta));
   return card;
+}
+
+// ---------- 탭 ----------
+
+const TAB_KEY = 'dash.tab';
+
+function setTab(tab) {
+  state.tab = tab === 'pmr' ? 'pmr' : 'home';
+  save(TAB_KEY, state.tab);
+  renderTabs();
+  window.scrollTo(0, 0);
+}
+
+function renderTabs() {
+  for (const btn of document.querySelectorAll('.tab')) {
+    const on = btn.dataset.tab === state.tab;
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-selected', String(on));
+  }
+  $('tab-home').hidden = state.tab !== 'home';
+  $('tab-pmr').hidden = state.tab !== 'pmr';
+}
+
+// ---------- PMR-Wiki (PC → data/pmr-wiki.json, 폰 버튼 → data/pmr-commands.json) ----------
+
+const JOB_ICON = { ok: '✓', running: '⟳', wait: '…', warn: '!', error: '✕' };
+const PMR_STALE_H = 7; // PC는 바뀐 게 없어도 6시간마다 올린다. 이보다 오래되면 PC 꺼짐·동기화 멈춤
+const CMD_LABEL = { start: 'AI에게 맡기기', hold: '공부 안 함', unhold: '되돌리기' };
+const REQ_LABEL = { pending: 'AI 대기', running: 'AI 진행 중', done: 'AI 정리 완료', failed: 'AI 실패' };
+
+function fmtStamp(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function pendingCmd(action, target) {
+  return (state.pmrCmd.items || []).find((c) => c.status === 'pending' && c.action === action && c.target === target);
+}
+
+function renderPmr() {
+  const w = state.pmr || EMPTY.pmr();
+  const jobs = Array.isArray(w.jobs) ? w.jobs : [];
+  const bad = jobs.filter((j) => j.state === 'warn' || j.state === 'error');
+  const ageH = w.generatedAt ? (Date.now() - new Date(w.generatedAt).getTime()) / 3600000 : Infinity;
+  const stale = !w.missing && ageH > PMR_STALE_H;
+  $('pmr-dot').hidden = !(bad.length || stale);
+  $('pmr-dot').className = `tab-dot ${bad.some((j) => j.state === 'error') ? 'error' : 'warn'}`;
+  $('pmr-missing').hidden = !w.missing;
+  $('pmr-body').hidden = !!w.missing;
+  if (w.missing) return;
+
+  $('pmr-stamp').textContent = w.generatedAt ? `PC 갱신 ${timeAgo(w.generatedAt)}` : '';
+  $('pmr-stale').hidden = !stale;
+  $('pmr-stale').textContent = stale ? `PC 상태가 ${Math.floor(ageH)}시간째 올라오지 않았어요. PC가 꺼져 있거나 "PMR-Wiki dash sync" 작업이 멈췄을 수 있어요.` : '';
+  $('pmr-jobs').replaceChildren(...jobs.map(renderJob));
+
+  // 학습 후보: 표 순서가 곧 우선순위 (야간 자동 학습이 이 순서로, 최근 30일 요청은 건너뛰고 고른다)
+  const l = w.learning || {};
+  const topics = Array.isArray(l.topics) ? l.topics : [];
+  const live = topics.filter((t) => t.status !== '보류');
+  const held = topics.filter((t) => t.status === '보류');
+  const nextT = live.find((t) => t.id === l.nextAuto);
+  $('learn-count').textContent = live.length ? `${live.length}개` : '';
+  $('learn-next').textContent = nextT
+    ? `다음 야간 자동 학습: ${nextT.id} ${nextT.topic}${l.busy ? ' (진행 중인 요청이 끝난 뒤)' : ''}`
+    : '다음 야간 자동 학습: 없음 — 모든 후보를 최근 30일 안에 요청했어요';
+  $('learn-list').replaceChildren(...live.map((t) => renderTopic(t, l.nextAuto)));
+  $('learn-held').hidden = !held.length;
+  $('learn-held-title').textContent = `보류 ${held.length}개 (공부 안 함)`;
+  $('learn-held-list').replaceChildren(...held.map((t) => renderTopic(t, null)));
+
+  const wiki = w.wiki || {};
+  $('pmr-metrics').replaceChildren(...(wiki.metrics || []).flatMap((m) => [el('dt', {}, m.label), el('dd', {}, m.value)]));
+  $('pmr-warnings').replaceChildren(...(wiki.warnings || []).map((x) => el('li', {}, x)));
+  $('pmr-recent').replaceChildren(...(w.recent || []).map((r) =>
+    el('li', {}, el('span', { class: 'rc-date' }, r.date.slice(5)), el('span', { class: 'rc-kind' }, r.kind), el('span', { class: 'rc-text' }, r.text))));
+}
+
+function renderJob(j) {
+  const st = JOB_ICON[j.state] ? j.state : 'wait';
+  const details = el('details', { class: `job st-${st}` });
+  details.append(el('summary', {},
+    el('span', { class: 'job-icon', 'aria-hidden': 'true' }, JOB_ICON[st]),
+    el('span', { class: 'job-main' },
+      el('span', { class: 'job-name' }, j.name, el('span', { class: 'job-sched' }, j.schedule || '')),
+      el('span', { class: 'job-status' }, j.status || '')),
+  ));
+  const body = el('div', { class: 'job-body' });
+  if (j.last) body.append(el('p', {}, el('b', {}, `마지막 기록 ${j.last.date}`), ' ', j.last.text || ''));
+  if (j.next) body.append(el('p', {}, el('b', {}, '다음 '), fmtStamp(j.next)));
+  for (const d of j.detail || []) body.append(el('p', {}, d));
+  details.append(body);
+  return details;
+}
+
+function renderTopic(t, nextAuto) {
+  const li = el('li', { class: 'topic' });
+  const details = el('details');
+  const badges = el('span', { class: 'tags' });
+  const req = t.request;
+  if (t.id === nextAuto) badges.append(el('span', { class: 'tag' }, '다음 자동'));
+  if (req && (req.status === 'pending' || req.status === 'running')) badges.append(el('span', { class: 'tag busy' }, REQ_LABEL[req.status]));
+  else if (req) badges.append(el('span', { class: `tag${req.status === 'failed' ? ' bad' : ' muted'}` }, `${REQ_LABEL[req.status] || req.status} ${String(req.updatedAt || '').slice(5, 10)}`));
+  if (t.cooldownUntil) badges.append(el('span', { class: 'tag muted' }, `~${t.cooldownUntil.slice(5)} 쉼`));
+  const waiting = (state.pmrCmd.items || []).filter((c) => c.status === 'pending' && c.target === t.id);
+  for (const c of waiting) badges.append(el('span', { class: 'tag busy' }, `${CMD_LABEL[c.action]} · PC 반영 대기`));
+  details.append(el('summary', {},
+    el('span', { class: 'tp-id' }, t.status === '보류' ? t.id : `${t.rank ?? ''}. ${t.id}`),
+    el('span', { class: 'tp-main' }, el('span', { class: 'tp-title' }, t.topic), badges)));
+
+  const body = el('div', { class: 'tp-body' });
+  if (t.status === '학습중') body.append(el('p', {}, el('b', {}, '학습중')));
+  if (t.trigger) body.append(el('p', {}, el('b', {}, '트리거 '), t.trigger));
+  if (t.why) body.append(el('p', {}, el('b', {}, '왜 '), t.why));
+  if (t.held) body.append(el('p', {}, el('b', {}, '보류 '), t.held));
+  if (t.detail) body.append(el('p', { class: 'tp-detail' }, t.detail));
+  if (req) body.append(el('p', {}, el('b', {}, `${REQ_LABEL[req.status] || req.status} (${fmtStamp(req.updatedAt)}) `), req.note || ''));
+  const last = (state.pmrCmd.items || []).filter((c) => c.target === t.id && c.status !== 'pending').slice(-1)[0];
+  if (last) body.append(el('p', { class: last.status === 'failed' ? 'error' : 'help' }, `폰 요청 ${CMD_LABEL[last.action]}: ${last.note || last.status} (${fmtStamp(last.doneAt)})`));
+
+  const actions = el('div', { class: 'tp-actions' });
+  const button = (action, cls) => {
+    const b = el('button', { type: 'button', class: cls }, CMD_LABEL[action]);
+    b.disabled = !!pendingCmd(action, t.id);
+    b.addEventListener('click', () => sendPmrCommand(action, t));
+    return b;
+  };
+  if (t.status === '보류') actions.append(button('unhold', 'step'));
+  else {
+    const busy = req && (req.status === 'pending' || req.status === 'running');
+    if (!busy) actions.append(button('start', 'step'));
+    if (t.status === '후보') actions.append(button('hold', 'ghost'));
+  }
+  body.append(actions);
+  details.append(body);
+  li.append(details);
+  return li;
+}
+
+function sendPmrCommand(action, t) {
+  const ask = {
+    start: `${t.id} "${t.topic}"\nAI에게 탐색·선정·정리를 맡길까요? PC가 켜져 있으면 30분 안에 시작해요.`,
+    hold: `${t.id} "${t.topic}"\n공부할 거리에서 뺄까요? learning.md 보류 표로 옮기고 야간 자동 학습에서도 빠져요. (되돌릴 수 있어요)`,
+    unhold: `${t.id} "${t.topic}"\n후보 표로 되돌릴까요?`,
+  }[action];
+  if (!confirm(ask)) return;
+  if (state.demo) { toast('데모 모드에서는 보내지 않아요'); return; }
+  const id = newId().replace(/^t_/, 'c_');
+  changePmrCmd((d) => {
+    d.items = Array.isArray(d.items) ? d.items : [];
+    if (!d.items.some((c) => c.status === 'pending' && c.action === action && c.target === t.id)) {
+      d.items.push({ id, action, target: t.id, title: t.topic, status: 'pending', requestedAt: isoNow() });
+    }
+    return d;
+  }, `pmr: ${CMD_LABEL[action]} ${t.id}`).then((ok) => { if (ok) toast(`${t.id} ${CMD_LABEL[action]} — PC에서 반영 대기`, () => cancelPmrCommand(id)); });
+}
+
+// 아직 PC가 가져가지 않은 명령만 취소한다
+function cancelPmrCommand(id) {
+  changePmrCmd((d) => {
+    d.items = (d.items || []).filter((c) => !(c.id === id && c.status === 'pending'));
+    return d;
+  }, 'pmr: 명령 취소');
 }
 
 // ---------- 오늘 일정 (Google 캘린더 → data/calendar.json) ----------
@@ -1119,7 +1305,11 @@ function init() {
     state.todos = cached.todos || state.todos;
     state.projects = cached.projects || state.projects;
     state.calendar = cached.calendar || state.calendar;
+    state.pmr = cached.pmr || state.pmr;
+    state.pmrCmd = cached.pmrCmd || state.pmrCmd;
   }
+  state.tab = location.hash === '#pmr' ? 'pmr' : (load(TAB_KEY) || 'home');
+  for (const btn of document.querySelectorAll('.tab')) btn.addEventListener('click', () => setTab(btn.dataset.tab));
   render();
 
   $('add-form').addEventListener('submit', (ev) => {

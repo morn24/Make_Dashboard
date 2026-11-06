@@ -30,7 +30,12 @@
     <button class="link" id="banner-settings">연결 설정하기</button>
   </div>
 
-  <main>
+  <nav class="tabs" role="tablist" aria-label="화면">
+    <button type="button" role="tab" class="tab" id="tab-btn-home" data-tab="home" aria-controls="tab-home">오늘</button>
+    <button type="button" role="tab" class="tab" id="tab-btn-pmr" data-tab="pmr" aria-controls="tab-pmr">PMR-Wiki <span class="tab-dot" id="pmr-dot" hidden></span></button>
+  </nav>
+
+  <main id="tab-home" role="tabpanel" aria-labelledby="tab-btn-home">
     <section class="card" id="cal-card" aria-labelledby="cal-title" hidden>
       <div class="section-head">
         <h2 id="cal-title">오늘 일정</h2>
@@ -88,6 +93,47 @@
       <div id="proj-list" class="projects"></div>
       <p class="empty" id="proj-empty" hidden>아직 프로젝트가 없어요. PC에서 작업하면 여기에 나타나요.</p>
     </section>
+  </main>
+
+  <!-- PMR-Wiki: PC의 tools/dash_sync.py가 data/pmr-wiki.json을 올리고, 버튼은 data/pmr-commands.json에 남긴다 -->
+  <main id="tab-pmr" role="tabpanel" aria-labelledby="tab-btn-pmr" hidden>
+    <p class="empty" id="pmr-missing" hidden>
+      아직 PMR-Wiki 상태가 올라오지 않았어요. PC에서 <code>python tools/dash_sync.py</code>를 실행하거나 예약 작업 "PMR-Wiki dash sync"를 등록하세요.
+    </p>
+    <div id="pmr-body">
+      <section class="card" aria-labelledby="jobs-title">
+        <div class="section-head">
+          <h2 id="jobs-title">정기 작업</h2>
+          <span class="count" id="pmr-stamp"></span>
+        </div>
+        <p class="stale" id="pmr-stale" hidden></p>
+        <ul class="jobs" id="pmr-jobs"></ul>
+      </section>
+
+      <section class="card" aria-labelledby="learn-title">
+        <div class="section-head">
+          <h2 id="learn-title">학습 후보</h2>
+          <span class="count" id="learn-count"></span>
+        </div>
+        <p class="help" id="learn-next"></p>
+        <ul class="topics" id="learn-list"></ul>
+        <details class="upcoming" id="learn-held" hidden>
+          <summary id="learn-held-title"></summary>
+          <ul class="topics" id="learn-held-list"></ul>
+        </details>
+      </section>
+
+      <section class="card" aria-labelledby="wiki-title">
+        <div class="section-head"><h2 id="wiki-title">위키 현황</h2></div>
+        <dl class="metrics" id="pmr-metrics"></dl>
+        <ul class="warn-list" id="pmr-warnings"></ul>
+      </section>
+
+      <section class="card" aria-labelledby="recent-title">
+        <div class="section-head"><h2 id="recent-title">최근 작업 (log.md)</h2></div>
+        <ul class="recent" id="pmr-recent"></ul>
+      </section>
+    </div>
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
