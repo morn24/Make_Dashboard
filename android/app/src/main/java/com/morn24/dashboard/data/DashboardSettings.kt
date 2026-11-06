@@ -24,10 +24,19 @@ data class DashboardSettings(
     }
 }
 
-enum class DashboardFile(val path: String, val key: String) {
+enum class DashboardFile(val path: String, val key: String, val core: Boolean = true) {
     TODOS("data/todos.json", "todos"),
     PROJECTS("data/projects.json", "projects"),
     CALENDAR("data/calendar.json", "calendar"),
+
+    /** PMR-Wiki summary (read only). Optional: a missing or unreadable file never shows as a widget error. */
+    PMR("data/pmr-wiki.json", "pmr", core = false),
+    ;
+
+    companion object {
+        /** Files whose state is reported to the user (sync status, errors, timestamps). */
+        val coreFiles: List<DashboardFile> get() = entries.filter { it.core }
+    }
 }
 
 data class CachedJsonFile(
@@ -43,6 +52,7 @@ data class CachedJsonFile(
 data class PendingTodoToggle(
     val operationId: String,
     val todoId: String,
+    /** Legacy (v1.5) target value; kept so a pending record left by the old app still decodes. */
     val targetDoneOn: String?,
     val tappedDate: String,
     val expectedGeneration: Long,
@@ -51,7 +61,15 @@ data class PendingTodoToggle(
     val undoRecordId: String? = null,
     val requiresExpectedMatch: Boolean = false,
     val expectedDoneOn: String? = null,
-)
+    /** The user intent: complete (true) or cancel the completion (false). Null = written by v1.5. */
+    val makeDone: Boolean? = null,
+) {
+    /** What the overlay and the remote write apply: v1.5 records infer it from the old target. */
+    val isCompletion: Boolean get() = makeDone ?: (undoRecordId == null && targetDoneOn != null)
+}
+
+@Serializable
+enum class UndoKind { COMPLETION, DELETION }
 
 @Serializable
 data class CompletedTodoUndo(
@@ -63,6 +81,13 @@ data class CompletedTodoUndo(
     val completedDate: String,
     val generation: Long,
     val completedAtMillis: Long,
+    val kind: UndoKind = UndoKind.COMPLETION,
+    /** `history` before the completion (null = the key was absent). Only trusted when [historyCaptured]. */
+    val originalHistory: List<String>? = null,
+    val historyCaptured: Boolean = false,
+    /** For [UndoKind.DELETION]: the deleted item JSON and the id of the item that followed it. */
+    val deletedItemJson: String? = null,
+    val afterId: String? = null,
 )
 
 @Serializable

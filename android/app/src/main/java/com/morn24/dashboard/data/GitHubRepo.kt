@@ -27,13 +27,23 @@ sealed interface RemoteRead {
     data object NotFound : RemoteRead
 }
 
+/** What a mutation wants to write: a new document, or null when nothing needs to change. */
+class DocChange(
+    val document: JsonObject?,
+    /** The item as it was before the change (toggle/delete), used to build one-shot undo records. */
+    val before: JsonObject? = null,
+    /** For deletions: the id of the item that followed the deleted one, so undo restores its place. */
+    val afterId: String? = null,
+)
+
 data class MutationResult(
     val document: JsonObject,
     val sha: String,
     val previousSha: String,
     val updatedAt: String,
-    val originalDoneOn: String? = null,
     val changed: Boolean = true,
+    val before: JsonObject? = null,
+    val afterId: String? = null,
 )
 
 class GitHubApiException(val statusCode: Int) : IOException("GitHub API request failed with HTTP $statusCode")
@@ -82,62 +92,33 @@ class GitHubRepo(
         }
     }
 
-    override fun updateTodo(todoId: String, targetDoneOn: String?): MutationResult =
-        updateTodoInternal(todoId, checkExpected = false, expectedDoneOn = null, targetDoneOn = targetDoneOn)
-
-    override fun updateTodoIfCurrent(
-        todoId: String,
-        expectedDoneOn: String?,
-        targetDoneOn: String?,
-    ): MutationResult = updateTodoInternal(todoId, checkExpected = true, expectedDoneOn = expectedDoneOn, targetDoneOn = targetDoneOn)
-
-    private fun updateTodoInternal(
-        todoId: String,
-        checkExpected: Boolean,
-        expectedDoneOn: String?,
-        targetDoneOn: String?,
-    ): MutationResult {
+    /**
+     * Read the newest file, apply [change] to it, then PUT with the sha just read. A 409/422 means
+     * somebody else wrote in between: read again and re-apply (never overwrite), up to four times.
+     * [change] may throw (e.g. [MissingTodoException]) to abort without writing.
+     */
+    override fun mutate(file: DashboardFile, message: String, change: (JsonObject) -> DocChange): MutationResult {
         repeat(MAX_PUT_ATTEMPTS) { attempt ->
-            val remote = read(DashboardFile.TODOS)
-            if (remote !is RemoteRead.Found) throw MissingRemoteFileException(DashboardFile.TODOS.path)
-            val items = remote.document["items"] as? JsonArray
-                ?: throw InvalidRemoteJsonException(IllegalStateException("todos.items is not an array"))
-            val todoIndex = items.indexOfFirst { item ->
-                (item as? JsonObject)?.get("id")?.jsonPrimitive?.content == todoId
-            }
-            if (todoIndex < 0) throw MissingTodoException(todoId)
-
-            val original = items[todoIndex].jsonObject
-            val originalDoneOn = when (val value = original["doneOn"]) {
-                null, JsonNull -> null
-                is JsonPrimitive -> value.contentOrNull?.takeIf { value.isString }
-                    ?: throw InvalidRemoteJsonException(IllegalArgumentException("todos.doneOn is not a string or null"))
-                else -> throw InvalidRemoteJsonException(IllegalArgumentException("todos.doneOn is not a string or null"))
-            }
-            if (checkExpected && originalDoneOn != expectedDoneOn) throw UndoConflictException()
-            if (originalDoneOn == targetDoneOn) {
+            val remote = read(file)
+            if (remote !is RemoteRead.Found) throw MissingRemoteFileException(file.path)
+            val result = change(remote.document)
+            val updated = result.document
+            if (updated == null) {
                 val updatedAt = (remote.document["updatedAt"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                return MutationResult(remote.document, remote.sha, remote.sha, updatedAt, originalDoneOn, changed = false)
+                return MutationResult(
+                    remote.document, remote.sha, remote.sha, updatedAt,
+                    changed = false, before = result.before, afterId = result.afterId,
+                )
             }
 
-            val updatedAt = OffsetDateTime.now(clock).toString()
-            val updatedItems = items.mapIndexed { index, item ->
-                if (index != todoIndex) item
-                else {
-                    val current = item.jsonObject
-                    JsonObject(current.toMutableMap().apply {
-                        put("doneOn", targetDoneOn?.let(::JsonPrimitive) ?: JsonNull)
-                    })
-                }
-            }
-            val updatedDocument = JsonObject(remote.document.toMutableMap().apply {
-                put("items", JsonArray(updatedItems))
-                put("updatedAt", JsonPrimitive(updatedAt))
-            })
-
+            val updatedAt = IsoTime.now(clock)
+            val updatedDocument = JsonObject(LinkedHashMap(updated).apply { put("updatedAt", JsonPrimitive(updatedAt)) })
             try {
-                val newSha = put(DashboardFile.TODOS.path, updatedDocument, remote.sha, TODO_COMMIT_MESSAGE)
-                return MutationResult(updatedDocument, newSha, remote.sha, updatedAt, originalDoneOn, changed = true)
+                val newSha = put(file.path, updatedDocument, remote.sha, message)
+                return MutationResult(
+                    updatedDocument, newSha, remote.sha, updatedAt,
+                    changed = true, before = result.before, afterId = result.afterId,
+                )
             } catch (error: GitHubApiException) {
                 if (error.statusCode !in CONFLICT_STATUSES || attempt == MAX_PUT_ATTEMPTS - 1) throw error
                 sleeper(RETRY_DELAY_MS * (attempt + 1))
@@ -188,7 +169,6 @@ class GitHubRepo(
     companion object {
         private const val ACCEPT = "application/vnd.github+json"
         private const val API_VERSION = "2022-11-28"
-        private const val TODO_COMMIT_MESSAGE = "android widget: update todo completion"
         private const val MAX_PUT_ATTEMPTS = 4
         private const val RETRY_DELAY_MS = 600L
         private val CONFLICT_STATUSES = setOf(409, 422)

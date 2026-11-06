@@ -611,6 +611,7 @@ private fun FileStatusCard(status: FileSyncStatus) {
         DashboardFile.TODOS -> "할 일 · ${status.file.path}"
         DashboardFile.PROJECTS -> "프로젝트 · ${status.file.path}"
         DashboardFile.CALENDAR -> "캘린더 · ${status.file.path}"
+        DashboardFile.PMR -> "PMR-Wiki · ${status.file.path}"
     }
     val message = when {
         status.error != null -> "마지막 시도 실패 · ${status.error}"

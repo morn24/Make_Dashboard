@@ -75,12 +75,12 @@ class GitHubRepoTest {
     }
 
     @Test
-    fun updateTodoChangesOnlyTargetDoneOnAndUpdatedAtAndWritesUtf8PrettyJsonWithSha() {
+    fun completionChangesOnlyDoneOnHistoryAndUpdatedAtAndWritesUtf8PrettyJsonWithSha() {
         val original = """{"version":1,"updatedAt":"old","future":{"keep":[1,"한글"]},"items":[{"id":"t1","title":"체크 ✅","repeat":"daily","doneOn":null,"custom":{"x":7}},{"id":"t2","doneOn":null}]}"""
         server.enqueue(okResponse(contentResponse(original, "sha-before")))
         server.enqueue(okResponse("""{"content":{"sha":"sha-after"}}"""))
 
-        val result = repo().updateTodo("t1", "2026-10-31")
+        val result = repo().mutate(DashboardFile.TODOS, "widget: test") { TodoMutations.setCompletion(it, "t1", "2026-10-31", true) }
         val get = server.takeRequest()
         val put = server.takeRequest()
         val body = Json.parseToJsonElement(bodyText(put)).jsonObject
@@ -91,7 +91,7 @@ class GitHubRepoTest {
         assertEquals("PUT", put.method)
         assertEquals("sha-before", body["sha"]!!.jsonPrimitive.content)
         assertEquals("main", body["branch"]!!.jsonPrimitive.content)
-        assertTrue(body["message"]!!.jsonPrimitive.content.contains("todo completion"))
+        assertTrue(body["message"]!!.jsonPrimitive.content.contains("widget"))
         assertEquals("2026-10-31T12:34:56Z", saved["updatedAt"]!!.jsonPrimitive.content)
         assertEquals("한글", saved["future"]!!.jsonObject["keep"]!!.jsonArray[1].jsonPrimitive.content)
         val items = saved["items"]!!.jsonArray
@@ -115,7 +115,7 @@ class GitHubRepoTest {
         server.enqueue(okResponse("""{"content":{"sha":"sha-3"}}"""))
         val delays = mutableListOf<Long>()
 
-        val result = repo(sleeper = delays::add).updateTodo("t1", "2026-10-31")
+        val result = repo(sleeper = delays::add).mutate(DashboardFile.TODOS, "widget: test") { TodoMutations.setCompletion(it, "t1", "2026-10-31", true) }
         val requests = (1..4).map { server.takeRequest() }
         val retryBody = Json.parseToJsonElement(bodyText(requests[3])).jsonObject
         val savedText = String(Base64.getDecoder().decode(retryBody["content"]!!.jsonPrimitive.content), Charsets.UTF_8)
@@ -137,7 +137,7 @@ class GitHubRepoTest {
         server.enqueue(okResponse(contentResponse("""{"items":[{"id":"t1","doneOn":"2026-10-30"}],"newField":true}""", "sha-new")))
         server.enqueue(okResponse("""{"content":{"sha":"sha-saved"}}"""))
 
-        val result = repo().updateTodo("t1", null)
+        val result = repo().mutate(DashboardFile.TODOS, "widget: test") { TodoMutations.setCompletion(it, "t1", "2026-10-31", false) }
         val requests = (1..4).map { server.takeRequest() }
         val putBody = Json.parseToJsonElement(bodyText(requests[3])).jsonObject
         val savedText = String(Base64.getDecoder().decode(putBody["content"]!!.jsonPrimitive.content), Charsets.UTF_8)
@@ -156,7 +156,7 @@ class GitHubRepoTest {
             server.enqueue(MockResponse.Builder().code(422).body("conflict").build())
         }
         val delays = mutableListOf<Long>()
-        val error = runCatching { repo(sleeper = delays::add).updateTodo("t1", "2026-10-31") }.exceptionOrNull() as GitHubApiException
+        val error = runCatching { repo(sleeper = delays::add).mutate(DashboardFile.TODOS, "widget: test") { TodoMutations.setCompletion(it, "t1", "2026-10-31", true) } }.exceptionOrNull() as GitHubApiException
 
         assertEquals(422, error.statusCode)
         assertEquals(listOf(600L, 1_200L, 1_800L), delays)
@@ -168,7 +168,7 @@ class GitHubRepoTest {
     @Test
     fun deletedTodoIsNotRecreated() {
         server.enqueue(okResponse(contentResponse("""{"items":[{"id":"other"}]}""", "sha")))
-        assertTrue(runCatching { repo().updateTodo("missing", "2026-10-31") }.exceptionOrNull() is MissingTodoException)
+        assertTrue(runCatching { repo().mutate(DashboardFile.TODOS, "widget: test") { TodoMutations.setCompletion(it, "missing", "2026-10-31", true) } }.exceptionOrNull() is MissingTodoException)
         assertEquals("GET", server.takeRequest().method)
         assertEquals(null, server.takeRequest(10, java.util.concurrent.TimeUnit.MILLISECONDS))
     }
@@ -178,10 +178,9 @@ class GitHubRepoTest {
         val current = """{"version":1,"items":[{"id":"t1","doneOn":"2026-10-31"}]}"""
         server.enqueue(okResponse(contentResponse(current, "sha-current")))
 
-        val result = repo().updateTodo("t1", "2026-10-31")
+        val result = repo().mutate(DashboardFile.TODOS, "widget: test") { TodoMutations.setCompletion(it, "t1", "2026-10-31", true) }
 
         assertEquals("sha-current", result.sha)
-        assertEquals("2026-10-31", result.originalDoneOn)
         assertFalse(result.changed)
         assertEquals("GET", server.takeRequest().method)
         assertEquals(null, server.takeRequest(10, java.util.concurrent.TimeUnit.MILLISECONDS))
@@ -192,7 +191,7 @@ class GitHubRepoTest {
         val current = """{"version":1,"items":[{"id":"t1","doneOn":"2026-11-01"}]}"""
         server.enqueue(okResponse(contentResponse(current, "sha-current")))
 
-        val error = runCatching { repo().updateTodoIfCurrent("t1", "2026-10-31", null) }.exceptionOrNull()
+        val error = runCatching { repo().mutate(DashboardFile.TODOS, "widget: undo") { TodoMutations.restoreCompletion(it, "t1", "2026-10-31", "2026-10-31", null, null, true) } }.exceptionOrNull()
 
         assertTrue(error is UndoConflictException)
         assertEquals("GET", server.takeRequest().method)
@@ -207,7 +206,7 @@ class GitHubRepoTest {
         server.enqueue(MockResponse.Builder().code(409).body("conflict").build())
         server.enqueue(okResponse(contentResponse(changed, "sha-2")))
 
-        val error = runCatching { repo(sleeper = {}).updateTodoIfCurrent("t1", "2026-10-31", null) }.exceptionOrNull()
+        val error = runCatching { repo(sleeper = {}).mutate(DashboardFile.TODOS, "widget: undo") { TodoMutations.restoreCompletion(it, "t1", "2026-10-31", "2026-10-31", null, null, true) } }.exceptionOrNull()
 
         assertTrue(error is UndoConflictException)
         assertEquals(listOf("GET", "PUT", "GET"), (1..3).map { server.takeRequest().method })

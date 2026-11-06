@@ -216,7 +216,7 @@ class DashboardSyncEngineTest {
         return DashboardRepositoryFactory { _, _, _, _ ->
             object : DashboardRepository {
                 override fun read(file: DashboardFile): RemoteRead = readers[file]?.invoke() ?: RemoteRead.NotFound
-                override fun updateTodo(todoId: String, targetDoneOn: String?): MutationResult = error("unused")
+                override fun mutate(file: DashboardFile, message: String, change: (kotlinx.serialization.json.JsonObject) -> com.morn24.dashboard.data.DocChange): MutationResult = error("unused")
             }
         }
     }
