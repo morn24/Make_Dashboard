@@ -324,3 +324,74 @@ dialog .field input { display: block; width: 100%; margin-top: 4px; padding: 10p
 }
 #tm-sync:empty { display: none; }
 .gcal { text-decoration: none; white-space: nowrap; }
+
+/* 탭 (오늘 / PMR-Wiki) */
+.tabs { display: flex; gap: 6px; max-width: 640px; margin: 0 auto 12px; padding: 0 16px; }
+.tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 99px; border: 1px solid var(--line);
+  background: var(--card); color: var(--muted); font-size: .9rem;
+}
+.tab.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.tab-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+.tab-dot.error { background: var(--danger); }
+
+/* PMR-Wiki: 정기 작업 */
+.jobs, .topics, .recent, .warn-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.job { border-bottom: 1px solid var(--line); }
+.job:last-child { border-bottom: 0; }
+.job > summary, .topic summary {
+  list-style: none; cursor: pointer; display: flex; gap: 10px; align-items: flex-start; padding: 10px 0;
+}
+.job > summary::-webkit-details-marker, .topic summary::-webkit-details-marker { display: none; }
+.job-icon {
+  flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-content: center;
+  font-size: .8rem; font-weight: 700; color: #fff; background: var(--muted); margin-top: 1px;
+}
+.st-ok .job-icon { background: var(--ok); }
+.st-running .job-icon { background: var(--accent); }
+.st-warn .job-icon { background: var(--warn); }
+.st-error .job-icon { background: var(--danger); }
+.job-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.job-name { font-weight: 600; }
+.job-sched { font-weight: 400; color: var(--muted); font-size: .78rem; margin-left: 8px; }
+.job-status { font-size: .88rem; color: var(--muted); overflow-wrap: anywhere; }
+.st-warn .job-status { color: var(--warn); }
+.st-error .job-status { color: var(--danger); }
+.job-body, .tp-body { font-size: .85rem; color: var(--muted); padding: 0 0 10px 34px; overflow-wrap: anywhere; }
+.job-body p, .tp-body p { margin: 4px 0; }
+.job-body b, .tp-body b { color: var(--text); font-weight: 600; }
+
+/* PMR-Wiki: 학습 후보 */
+.topic { border-bottom: 1px solid var(--line); }
+.topic:last-child { border-bottom: 0; }
+.tp-id { flex: none; min-width: 44px; color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; padding-top: 1px; }
+.tp-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.tp-title { overflow-wrap: anywhere; }
+.tp-main .tags { flex-wrap: wrap; }
+.tag.busy { background: var(--accent); color: #fff; }
+.tag.muted { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.tag.bad { background: var(--bg); color: var(--danger); border: 1px solid var(--danger); }
+.tp-body { padding-left: 54px; }
+.tp-detail { white-space: pre-line; }
+.tp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.tp-actions button { padding: 8px 12px; border-radius: 10px; font-size: .85rem; }
+.tp-actions .step { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tp-actions .ghost { border: 1px solid var(--line); background: none; color: var(--muted); }
+.tp-actions button:disabled { opacity: .45; cursor: default; }
+
+/* PMR-Wiki: 위키 현황·최근 작업 */
+.metrics { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 6px 12px; margin: 10px 0 0; font-size: .88rem; }
+.metrics dt { color: var(--muted); }
+.metrics dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.warn-list li { color: var(--warn); font-size: .82rem; margin-top: 8px; overflow-wrap: anywhere; }
+.recent li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: .85rem; }
+.recent li:last-child { border-bottom: 0; }
+.rc-date { color: var(--muted); font-variant-numeric: tabular-nums; grid-row: span 2; }
+.rc-kind { font-weight: 600; }
+.rc-text { color: var(--muted); overflow-wrap: anywhere; }
+#pmr-missing code { font-size: .85em; }
+@media (max-width: 360px) {
+  .metrics { grid-template-columns: minmax(0, 1fr); }
+  .metrics dd { margin-bottom: 4px; }
+}

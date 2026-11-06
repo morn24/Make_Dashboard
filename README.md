@@ -2,7 +2,7 @@
 
 오늘 할 일과 PC에서 Codex나 Claude Code로 진행하는 프로젝트의 진행률을 **폰에서 한눈에** 보는 개인 대시보드입니다.
 
-- `web/`: 웹앱 (PWA). 할 일 체크와 추가, 프로젝트 진행률 보기
+- `web/`: 웹앱 (PWA). 할 일 체크와 추가, 프로젝트 진행률 보기, **PMR-Wiki 탭**(정기 작업 실행 여부·학습 후보·AI에게 맡기기 — 데이터는 PMR-Wiki `tools/dash_sync.py`가 올림)
 - `docs/data-format.md`: 데이터 형식 (웹앱, PC 스크립트, 위젯이 공통으로 따르는 약속)
 - `docs/work-plan.md`: **업무계획서**
 - `docs/instructions/`: 로컬 PC에서 AI에게 맡길 **수행지시문**

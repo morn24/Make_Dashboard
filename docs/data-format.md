@@ -13,6 +13,8 @@
 
 - `data/calendar.json`: Google 캘린더 **일정** (**Google Apps Script만** 씀. 웹앱과 위젯은 읽기만)
   - `data/push.json`: 폰 알림(Web Push) 구독 정보 (Apps Script가 공개키를, 폰이 구독을 씀)
+  - `data/pmr-wiki.json`: PMR-Wiki 정기 작업·학습 후보 상태 (**PC의 PMR-Wiki `tools/dash_sync.py`만** 씀. 웹앱은 읽기만)
+  - `data/pmr-commands.json`: PMR-Wiki 탭에서 누른 버튼 명령 (폰이 추가, PC가 실행 후 결과 기록)
 
 `data/todos.json`은 Apps Script도 씁니다 (Google 할 일 양방향 동기화). Google **할 일**은 `todos.json`에만 들어가고 `calendar.json`에는 들어가지 않습니다.
 
@@ -225,3 +227,67 @@ PC에서 명령을 실행할 수 없는 AI(Gemini 웹·앱)는 웹앱의 **＋ �
 - 시간 일정: 오늘 0시~24시와 겹치면 오늘 일정 (`start < 내일 0시` 그리고 `end > 오늘 0시`). 어제 밤에 시작해 오늘 새벽에 끝나는 일정도 포함
 - 정렬: 종일 먼저, 그다음 시작 시각순
 - 표시: 이미 끝난 일정은 흐리게, 지금 진행 중인 일정은 강조
+
+## `data/pmr-wiki.json` (PMR-Wiki 탭)
+
+PMR-Wiki 보관함의 `tools/dash_sync.py`가 Windows 예약 작업 "PMR-Wiki dash sync"로 **30분마다** 만든다.
+내용이 바뀌었을 때, 또는 바뀌지 않았어도 6시간마다 올린다. 그래서 `generatedAt`이 **7시간** 넘게 지났으면 웹앱은 "PC 꺼짐·동기화 멈춤" 경고를 보여준다.
+파일이 없으면(404) 웹앱은 설정 안내를 보여준다. **웹앱은 읽기만 한다.**
+
+```json
+{
+  "version": 1,
+  "generatedAt": "2026-11-06T20:53:03+09:00",
+  "jobs": [
+    { "id": "dtv-ingest", "name": "DTV 자동 ingest", "schedule": "매일 07:30", "state": "ok",
+      "status": "오늘 실행 완료", "last": { "date": "2026-11-06", "text": "log.md 줄 요약" },
+      "next": "2026-11-07T07:30:00+09:00", "detail": ["대기 논문 없음"] }
+  ],
+  "wiki": { "metrics": [{ "label": "위키 노트", "value": "431개 (reviewed 21 · draft 410)" }], "warnings": [] },
+  "learning": {
+    "nextAuto": "L18", "busy": false, "cooldownDays": 30, "topicsGenerated": "2026-11-06T07:42:23",
+    "topics": [
+      { "id": "L3", "status": "후보", "rank": 1, "topic": "주제", "trigger": "...", "why": "...", "detail": "...",
+        "cooldownUntil": "2026-12-01",
+        "request": { "status": "done", "source": "auto", "requestedAt": "...", "updatedAt": "...", "note": "..." } },
+      { "id": "L11", "status": "보류", "topic": "주제", "held": "2026-11-02" }
+    ]
+  },
+  "recent": [{ "date": "2026-11-06", "kind": "ingest (예약)", "text": "..." }]
+}
+```
+
+| 필드 | 뜻 |
+|---|---|
+| `jobs[].id` | `dtv-ingest`(매일 07:30), `weekly-lint`(화 19:10), `monthly-audit`(매월 첫 lint), `dashboard`(dashboard.md 갱신), `nightly-learning`(uptodate 야간 자동 학습 02:30) |
+| `jobs[].state` | `ok` 정상, `running` 실행 중, `wait` 예정(아직 시각 전), `warn` 확인 필요, `error` 놓침·실패 |
+| `jobs[].status` | 한 줄 판정. `last`는 마지막 기록(주로 `log.md`), `next`는 다음 예정 시각, `detail`은 보조 줄 |
+| `wiki` | `dashboard.md` "한눈에 보기" 표와 ⚠ 경고 줄 |
+| `learning.topics` | `learning.md`의 학습중 → 후보 → 보류 순. `rank`는 표 순서 = 우선순위 |
+| `learning.nextAuto` | 다음 야간 자동 학습이 고를 후보 (최근 `cooldownDays`일 안에 요청한 후보는 건너뜀, `cooldownUntil`까지 쉼) |
+| `topics[].request` | uptodate 학습 AI 요청(`study/ai_requests.json`)의 그 후보 최신 상태: `pending`·`running`·`done`·`failed` |
+| `recent` | `log.md` 최근 10건 (최신이 먼저) |
+
+## `data/pmr-commands.json` (PMR-Wiki 탭 버튼)
+
+```json
+{
+  "version": 1,
+  "updatedAt": "2026-11-06T21:00:00+09:00",
+  "items": [
+    { "id": "c_lq2x9k3a", "action": "start", "target": "L18", "title": "주제", "status": "pending",
+      "requestedAt": "2026-11-06T21:00:00+09:00" },
+    { "id": "c_lq2xa01c", "action": "hold", "target": "L23", "title": "주제", "status": "done",
+      "requestedAt": "...", "note": "learning.md 보류 표로 옮김", "doneAt": "..." }
+  ]
+}
+```
+
+| 필드 | 뜻 |
+|---|---|
+| `action` | `start` = AI에게 맡기기(uptodate `study_ai_requests.py request-wiki`), `hold` = 공부 안 함, `unhold` = 되돌리기 (둘 다 PMR-Wiki `dtv_bridge.py hold/unhold`) |
+| `target` | 학습 후보 번호 `L숫자`만 |
+| `status` | 폰이 `pending`으로 추가 → PC가 실행 후 `done`/`failed`와 `note`, `doneAt`을 쓴다 |
+
+- 폰은 같은 `action`+`target`의 `pending`이 이미 있으면 더하지 않는다. 아직 `pending`인 명령만 취소(삭제)할 수 있다.
+- PC는 `pending`만 실행하고, 끝난 명령은 7일 지나면 지운다 (최대 50개 유지).
