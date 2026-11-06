@@ -79,6 +79,29 @@ button { cursor: pointer; }
   border: 1px solid var(--line); background: var(--card); font-size: 1.1rem;
 }
 .icon-btn.spin { animation: spin .8s linear infinite; }
+.icon-btn.bell { position: relative; display: inline-grid; place-items: center; padding: 0; }
+.bell-badge {
+  position: absolute; top: -3px; right: -3px; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 99px; background: var(--danger); color: #fff; font-size: .7rem; line-height: 18px;
+  font-weight: 700; font-variant-numeric: tabular-nums;
+}
+/* 알림 기록 창: 오른쪽 위 종 아래에 붙어 뜨고, 밖을 누르면 닫힌다 */
+.top { position: relative; }
+.notif-pop {
+  position: absolute; top: 60px; right: 16px; z-index: 30;
+  width: min(360px, calc(100vw - 32px)); max-height: min(70vh, 520px); overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .18); padding: 6px 0;
+}
+.np-head { font-weight: 700; padding: 8px 14px 6px; }
+.notif-pop .empty { margin: 0; padding: 10px 14px 14px; }
+.np-list { list-style: none; margin: 0; padding: 0; }
+.np-list li { padding: 9px 14px; border-top: 1px solid var(--line); }
+.np-list li.new { background: var(--accent-soft); }
+.np-row { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.np-title { font-weight: 600; font-size: .92rem; min-width: 0; }
+.np-time { color: var(--muted); font-size: .78rem; flex: none; font-variant-numeric: tabular-nums; }
+.np-body { color: var(--muted); font-size: .85rem; white-space: pre-line; overflow-wrap: anywhere; margin-top: 2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .banner {
@@ -395,3 +418,13 @@ dialog .field input { display: block; width: 100%; margin-top: 4px; padding: 10p
   .metrics { grid-template-columns: minmax(0, 1fr); }
   .metrics dd { margin-bottom: 4px; }
 }
+
+/* PMR-Wiki: 결정 대기 (번호 칸이 없어 본문을 들여 쓰지 않는다)·검토 기한 */
+.topic.dec .tp-body { padding-left: 0; }
+.due-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.due-list li { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: .88rem; }
+.due-list li:last-child { border-bottom: 0; }
+.due-title { min-width: 0; overflow-wrap: anywhere; }
+.due-when { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.due-list li.soon .due-when { color: var(--warn); font-weight: 600; }
+.due-list li.over .due-when { color: var(--danger); font-weight: 600; }

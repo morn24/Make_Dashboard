@@ -2,27 +2,92 @@
   "version": 1,
   "generatedAt": "2099-01-01T00:00:00+09:00",
   "jobs": [
-    { "id": "dtv-ingest", "name": "DTV 자동 ingest", "schedule": "매일 07:30", "state": "ok", "status": "오늘 실행 완료",
-      "last": { "date": "2099-01-01", "text": "예시 논문 2편 — 소스카드 2개, draft 보강 1, 패치 제안 1" },
-      "next": "2099-01-02T07:30:00+09:00", "detail": ["대기 논문 없음", "마지막 실행 2099-01-01 07:30"] },
-    { "id": "weekly-lint", "name": "주간 lint", "schedule": "매주 화 19:10", "state": "warn",
+    {
+      "id": "dtv-ingest",
+      "name": "DTV 자동 ingest",
+      "schedule": "매일 07:30",
+      "state": "ok",
+      "status": "오늘 실행 완료",
+      "last": {
+        "date": "2099-01-01",
+        "text": "예시 논문 2편 — 소스카드 2개, draft 보강 1, 패치 제안 1"
+      },
+      "next": "2099-01-02T07:30:00+09:00",
+      "detail": [
+        "대기 논문 없음",
+        "마지막 실행 2099-01-01 07:30"
+      ]
+    },
+    {
+      "id": "weekly-lint",
+      "name": "주간 lint",
+      "schedule": "매주 화 19:10",
+      "state": "warn",
       "status": "12-29 회차 아직 안 됨 — 24시간 안에 PC가 켜지면 이어서 실행",
-      "last": { "date": "2098-12-22", "text": "주간 — 깨진 링크 0, 적체 10" }, "next": "2099-01-05T19:10:00+09:00", "detail": [] },
-    { "id": "monthly-audit", "name": "월간 감사", "schedule": "매월 첫 lint", "state": "wait",
-      "status": "이번 달 첫 lint(01-05)에 함께 실행", "last": null, "next": "2099-01-05T19:10:00+09:00", "detail": [] },
-    { "id": "dashboard", "name": "dashboard 갱신", "schedule": "작업 단위마다", "state": "ok", "status": "01-01 07:41 갱신",
-      "last": { "date": "2099-01-01", "text": "2099-01-01 07:41" }, "next": null, "detail": [] },
-    { "id": "nightly-learning", "name": "야간 자동 학습", "schedule": "매일 02:30", "state": "running", "status": "진행 중: [위키 L2] 예시 주제 B",
-      "last": { "date": "2099-01-01", "text": "L1 done — 클래식 3편·현재 근거 10편·종합 요약 게시" },
-      "next": "2099-01-02T02:30:00+09:00", "detail": ["작업자 마지막 실행 01-01 02:42"] }
+      "last": {
+        "date": "2098-12-22",
+        "text": "주간 — 깨진 링크 0, 적체 10"
+      },
+      "next": "2099-01-05T19:10:00+09:00",
+      "detail": []
+    },
+    {
+      "id": "monthly-audit",
+      "name": "월간 감사",
+      "schedule": "매월 첫 lint",
+      "state": "wait",
+      "status": "이번 달 첫 lint(01-05)에 함께 실행",
+      "last": null,
+      "next": "2099-01-05T19:10:00+09:00",
+      "detail": []
+    },
+    {
+      "id": "dashboard",
+      "name": "dashboard 갱신",
+      "schedule": "작업 단위마다",
+      "state": "ok",
+      "status": "01-01 07:41 갱신",
+      "last": {
+        "date": "2099-01-01",
+        "text": "2099-01-01 07:41"
+      },
+      "next": null,
+      "detail": []
+    },
+    {
+      "id": "nightly-learning",
+      "name": "야간 자동 학습",
+      "schedule": "매일 02:30",
+      "state": "running",
+      "status": "진행 중: [위키 L2] 예시 주제 B",
+      "last": {
+        "date": "2099-01-01",
+        "text": "L1 done — 클래식 3편·현재 근거 10편·종합 요약 게시"
+      },
+      "next": "2099-01-02T02:30:00+09:00",
+      "detail": [
+        "작업자 마지막 실행 01-01 02:42"
+      ]
+    }
   ],
   "wiki": {
     "metrics": [
-      { "label": "위키 노트", "value": "120개 (reviewed 10 · draft 110)" },
-      { "label": "검토 진행률(reviewed·applied)", "value": "8% (10/120)" },
-      { "label": "적체(미결 패치 + 열린 판단, 한도 20)", "value": "5 (패치 3 · 판단 2)" }
+      {
+        "label": "위키 노트",
+        "value": "120개 (reviewed 10 · draft 110)"
+      },
+      {
+        "label": "검토 진행률(reviewed·applied)",
+        "value": "8% (10/120)"
+      },
+      {
+        "label": "적체(미결 패치 + 열린 판단, 한도 20)",
+        "value": "5 (패치 3 · 판단 2)"
+      }
     ],
-    "warnings": ["⚠️ 규칙이 없어 등록되지 않은 inbox 항목 1개: example.pdf"]
+    "warnings": [
+      "⚠️ 규칙이 없어 등록되지 않은 inbox 항목 1개: example.pdf"
+    ]
   },
   "learning": {
     "topicsGenerated": "2099-01-01T07:40:00",
@@ -30,17 +95,150 @@
     "busy": true,
     "cooldownDays": 30,
     "topics": [
-      { "id": "L1", "status": "후보", "rank": 1, "topic": "예시 주제 A", "trigger": "① 진료 중 공백", "why": "예시 이유",
-        "detail": "예시 상세 — 남은 공백을 적는 칸", "cooldownUntil": "2099-01-31",
-        "request": { "status": "done", "source": "auto", "requestedAt": "2099-01-01T02:30:00+09:00", "updatedAt": "2099-01-01T02:42:00+09:00", "note": "클래식 3편·현재 근거 10편·종합 요약 게시" } },
-      { "id": "L2", "status": "후보", "rank": 2, "topic": "예시 주제 B", "trigger": "② lint 공백", "why": "예시 이유", "detail": "", "cooldownUntil": "2099-01-31",
-        "request": { "status": "running", "source": "phone", "requestedAt": "2099-01-01T09:00:00+09:00", "updatedAt": "2099-01-01T09:10:00+09:00", "note": "" } },
-      { "id": "L3", "status": "후보", "rank": 3, "topic": "예시 주제 C", "trigger": "④ 관심 방향", "why": "예시 이유", "detail": "" },
-      { "id": "L4", "status": "보류", "topic": "예시 주제 D", "trigger": "④ 관심 방향", "why": "", "detail": "", "held": "2098-12-30" }
+      {
+        "id": "L1",
+        "status": "후보",
+        "rank": 1,
+        "topic": "예시 주제 A",
+        "trigger": "① 진료 중 공백",
+        "why": "예시 이유",
+        "detail": "예시 상세 — 남은 공백을 적는 칸",
+        "cooldownUntil": "2099-01-31",
+        "request": {
+          "status": "done",
+          "source": "auto",
+          "requestedAt": "2099-01-01T02:30:00+09:00",
+          "updatedAt": "2099-01-01T02:42:00+09:00",
+          "note": "클래식 3편·현재 근거 10편·종합 요약 게시"
+        }
+      },
+      {
+        "id": "L2",
+        "status": "후보",
+        "rank": 2,
+        "topic": "예시 주제 B",
+        "trigger": "② lint 공백",
+        "why": "예시 이유",
+        "detail": "",
+        "cooldownUntil": "2099-01-31",
+        "request": {
+          "status": "running",
+          "source": "phone",
+          "requestedAt": "2099-01-01T09:00:00+09:00",
+          "updatedAt": "2099-01-01T09:10:00+09:00",
+          "note": ""
+        }
+      },
+      {
+        "id": "L3",
+        "status": "후보",
+        "rank": 3,
+        "topic": "예시 주제 C",
+        "trigger": "④ 관심 방향",
+        "why": "예시 이유",
+        "detail": ""
+      },
+      {
+        "id": "L4",
+        "status": "보류",
+        "topic": "예시 주제 D",
+        "trigger": "④ 관심 방향",
+        "why": "",
+        "detail": "",
+        "held": "2098-12-30"
+      }
     ]
   },
   "recent": [
-    { "date": "2099-01-01", "kind": "ingest (예약)", "text": "DTV 자동 2편 — 예시" },
-    { "date": "2098-12-31", "kind": "learning", "text": "L4 보류 — 대시보드에서 '공부 안 함'(사용자)" }
-  ]
+    {
+      "date": "2099-01-01",
+      "kind": "ingest (예약)",
+      "text": "DTV 자동 2편 — 예시"
+    },
+    {
+      "date": "2098-12-31",
+      "kind": "learning",
+      "text": "L4 보류 — 대시보드에서 '공부 안 함'(사용자)"
+    }
+  ],
+  "decisions": {
+    "need": 1,
+    "auto": 2,
+    "items": [
+      {
+        "id": "patch-20990101-example",
+        "kind": "patch",
+        "title": "예시 주제 A 노트에 주사 용량 보강",
+        "created": "2099-01-01",
+        "targets": [
+          "example-note-a"
+        ],
+        "risk": "중간 — 기존 줄 1개를 새 지침 값으로 교체",
+        "state": "need",
+        "reason": "덧붙이기가 아님: 제안 2 (기존 줄 교체)",
+        "recommend": "승인 — 새 지침이 더 최신"
+      },
+      {
+        "id": "patch-20990102-example",
+        "kind": "patch",
+        "title": "예시 주제 B에 최신 근거 1줄",
+        "created": "2099-01-02",
+        "targets": [
+          "example-note-b"
+        ],
+        "risk": "낮음",
+        "state": "auto",
+        "reason": "적용 대기 — 교차검증 통과 (매일 07:30)"
+      },
+      {
+        "id": "patch-20990103-example",
+        "kind": "patch",
+        "title": "예시 주제 C에 방법 모음 행 추가",
+        "created": "2099-01-03",
+        "targets": [
+          "example-note-c"
+        ],
+        "risk": "낮음",
+        "state": "auto",
+        "reason": "자동 교차검증 대기 (매일 07:30)"
+      },
+      {
+        "id": "lint-20990101",
+        "kind": "lint",
+        "title": "lint — 2099-01-01",
+        "created": "2099-01-01",
+        "state": "info",
+        "reason": "사용자 검토 자료 (PC에서 보기)"
+      }
+    ]
+  },
+  "reviewDue": {
+    "windowDays": 60,
+    "total": 12,
+    "nearest": "2099-01-20",
+    "items": [
+      {
+        "note": "example-note-a",
+        "title": "Example Topic A",
+        "due": "2099-01-10",
+        "daysLeft": -3,
+        "reviewed": "2098-01-10"
+      },
+      {
+        "note": "example-note-b",
+        "title": "Example Topic B",
+        "due": "2099-01-20",
+        "daysLeft": 9,
+        "reviewed": "2098-07-20"
+      },
+      {
+        "note": "example-note-c",
+        "title": "Example Topic C",
+        "due": "2099-02-25",
+        "daysLeft": 45,
+        "reviewed": "2098-02-25"
+      }
+    ]
+  },
+  "alerts": []
 }

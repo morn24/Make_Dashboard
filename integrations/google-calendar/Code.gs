@@ -6,6 +6,8 @@
  *    - 만들기·삭제·완료·이름·날짜를 서로 반영한다. 매일/요일 반복 할 일은 연동하지 않는다.
  *    - Google 할 일은 시간을 저장하지 못해서, 시간은 제목 앞에 "15:00 병원"처럼 붙인다.
  * 3) 알림: 시간 있는 할 일은 10분 전, 매일 오후 5시에 "못 한 일"·"내일 할 일" → 폰 대시보드 앱에 푸시
+ * 4) PMR-Wiki 알림: data/pmr-wiki.json을 10분마다 보고 작업 실패·PC 꺼짐으로 놓친 작업·새 결정 대기를 푸시
+ *    (보낸 것은 data/pmr-alerts.json에 남아 앱의 알림 기록에 보인다)
  *
  * 설치 방법: docs/google-calendar-setup.md
  * 데이터 형식: docs/data-format.md
@@ -15,7 +17,10 @@ const CONFIG = {
   owner: 'morn24',
   repo: 'dashboard-data',
   branch: 'main',
-  paths: { calendar: 'data/calendar.json', todos: 'data/todos.json', push: 'data/push.json' },
+  paths: {
+    calendar: 'data/calendar.json', todos: 'data/todos.json', push: 'data/push.json',
+    pmr: 'data/pmr-wiki.json', pmrAlerts: 'data/pmr-alerts.json',
+  },
   daysAhead: 7, // 오늘부터 며칠 치 일정을 저장할지
   excludeCalendars: [], // 빼고 싶은 캘린더 이름. 예: ['대한민국의 휴일']
   skipDeclined: true, // 내가 '거절'한 초대 일정은 빼기
@@ -24,6 +29,8 @@ const CONFIG = {
   taskList: '@default', // 연동할 Google 할 일 목록 (기본 목록 "내 할 일")
   alertBeforeMinutes: 10, // 시간 있는 할 일 알림: 시작 몇 분 전
   summaryHour: 17, // 이 시각에 "못 한 일"과 "내일 할 일" 묶음 알림
+  pmrEveryMinutes: 10, // PMR-Wiki 상태(PC가 30분마다 올림) 확인 주기
+  pmrMissGraceMinutes: 90, // 예약 작업 시각이 이만큼 지나도 PC 동기화가 없으면 'PC 꺼짐으로 놓침'
   pushContact: 'https://morn24.github.io/Make_Dashboard/', // 푸시 서버에 알리는 연락처 (VAPID sub)
   paletteCacheSeconds: 3600,
   labelCacheSeconds: 300,
@@ -77,6 +84,10 @@ function tick() {
     if (now - Number(PROPS.getProperty('LAST_CAL') || 0) >= (CONFIG.calendarEveryMinutes * 60 - 20) * 1000) {
       PROPS.setProperty('LAST_CAL', String(now));
       syncCalendar();
+    }
+    if (now - Number(PROPS.getProperty('LAST_PMR') || 0) >= (CONFIG.pmrEveryMinutes * 60 - 20) * 1000) {
+      PROPS.setProperty('LAST_PMR', String(now));
+      try { checkPmr_(); } catch (e) { Logger.log('PMR-Wiki 알림 확인 실패: %s', e); } // 할 일·캘린더 동기화는 계속한다
     }
   } finally {
     lock.releaseLock();
@@ -670,6 +681,14 @@ function sendDuePushes_() {
   const sent = JSON.parse(PROPS.getProperty('SENT') || '{}');
   const due = alerts.filter((a) => a.at <= now && now - a.at < 15 * 60000 && !sent[a.k]);
   if (!due.length) return;
+  pushAll_();
+  due.forEach((a) => { sent[a.k] = now; });
+  Object.keys(sent).forEach((k) => { if (now - sent[k] > 2 * 86400000) delete sent[k]; });
+  PROPS.setProperty('SENT', JSON.stringify(sent));
+}
+
+// 구독한 모든 폰에 신호를 보낸다. 사라진 구독은 push.json에서 정리한다
+function pushAll_() {
   const subs = JSON.parse(PROPS.getProperty('PUSH_SUBS') || '[]');
   const gone = [];
   subs.forEach((s) => {
@@ -677,9 +696,6 @@ function sendDuePushes_() {
     if (code === 404 || code === 410) gone.push(s.endpoint); // 폰에서 구독이 사라짐
     else if (code >= 300) Logger.log('푸시 실패 %s: %s', code, s.endpoint.slice(0, 60));
   });
-  due.forEach((a) => { sent[a.k] = now; });
-  Object.keys(sent).forEach((k) => { if (now - sent[k] > 2 * 86400000) delete sent[k]; });
-  PROPS.setProperty('SENT', JSON.stringify(sent));
   if (gone.length) {
     mutateFile_(CONFIG.paths.push, (d) => {
       d.subscriptions = (d.subscriptions || []).filter((s) => gone.indexOf(s.endpoint) < 0);
@@ -687,6 +703,49 @@ function sendDuePushes_() {
     }, 'push: 만료된 구독 정리');
     refreshSubscriptions_();
   }
+}
+
+// ---------- PMR-Wiki 알림 ----------
+// PC(tools/dash_sync.py)가 data/pmr-wiki.json의 alerts에 알릴 거리(작업 실패·새 결정 대기)를 고정 id로 올린다.
+// PC가 꺼져 있으면 아무것도 올라오지 않으므로, 예약 작업 시각이 지났는데 동기화가 없으면 여기서 'PC 꺼짐' 알림을 만든다.
+const PMR_WATCH_JOBS = ['dtv-ingest', 'weekly-lint', 'nightly-learning'];
+
+function pmrAlerts_(w, now) {
+  const out = (w.alerts || []).filter((a) => a && a.id && a.title)
+    .map((a) => ({ id: String(a.id), level: a.level || 'info', title: String(a.title), body: String(a.body || ''), source: 'pc' }));
+  const gen = Date.parse(w.generatedAt);
+  if (!gen) return out;
+  const missed = (w.jobs || []).filter((j) => PMR_WATCH_JOBS.indexOf(j.id) >= 0 && j.next
+    && Date.parse(j.next) + CONFIG.pmrMissGraceMinutes * 60000 < now && gen < Date.parse(j.next));
+  if (missed.length) {
+    out.push({
+      id: 'pc-off-' + w.generatedAt, level: 'warn', title: 'PC 꺼짐: 예약 작업 놓침',
+      body: missed.map((j) => j.name).join(', ') + ' — PC 마지막 동기화 ' + String(w.generatedAt).slice(5, 16).replace('T', ' '),
+      source: 'watchdog',
+    });
+  }
+  return out;
+}
+
+function checkPmr_() {
+  const w = readFile_(CONFIG.paths.pmr).data;
+  if (!w || !w.generatedAt) return;
+  const now = Date.now();
+  const sent = JSON.parse(PROPS.getProperty('PMR_SENT') || '{}');
+  const fresh = pmrAlerts_(w, now).filter((a) => !sent[a.id]);
+  if (!fresh.length) return;
+  const at = Utilities.formatDate(new Date(now), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ssXXX");
+  mutateFile_(CONFIG.paths.pmrAlerts, (d) => {
+    const items = (d.items || []).filter((x) => now - Date.parse(x.at) < 60 * 86400000);
+    const have = items.map((x) => x.id);
+    fresh.forEach((a) => { if (have.indexOf(a.id) < 0) items.unshift(Object.assign({ at: at }, a)); });
+    d.items = items.slice(0, 100);
+    return d;
+  }, 'pmr: 알림 ' + fresh.length + '건');
+  pushAll_();
+  fresh.forEach((a) => { sent[a.id] = now; });
+  Object.keys(sent).forEach((k) => { if (now - sent[k] > 30 * 86400000) delete sent[k]; }); // 30일 지나도 남아 있으면 다시 알린다
+  PROPS.setProperty('PMR_SENT', JSON.stringify(sent));
 }
 
 // push.json의 구독 목록을 스크립트 속성에 복사해 둔다 (1분마다 GitHub를 읽지 않으려고)

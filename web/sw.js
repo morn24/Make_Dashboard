@@ -3,7 +3,7 @@
 // 2) 알림: Apps Script가 알릴 시각에 내용 없는 푸시(신호)만 보내면, 여기서 할 일을 읽어 알림을 만든다.
 importScripts('rules.js');
 
-const CACHE = 'dash-shell-v12';
+const CACHE = 'dash-shell-v13';
 const PRIVATE_CACHE = 'dash-private'; // 앱이 넣어 둔 연결 정보(cfg). 버전이 바뀌어도 지우지 않는다
 const SHELL = ['./', 'index.html', 'style.css', 'rules.js', 'app.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/badge-96.png'];
@@ -41,18 +41,55 @@ self.addEventListener('fetch', (e) => {
 
 // ---------- 알림 ----------
 
-async function readTodos() {
+async function readData(path) {
   const res = await (await caches.open(PRIVATE_CACHE)).match('cfg');
   if (!res) return null;
   const cfg = await res.json();
   const url = `https://api.github.com/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}`
-    + `/contents/data/todos.json?ref=${encodeURIComponent(cfg.branch)}`;
+    + `/contents/${path}?ref=${encodeURIComponent(cfg.branch)}`;
   const r = await fetch(url, {
     cache: 'no-store',
     headers: { Accept: 'application/vnd.github.raw+json', Authorization: `Bearer ${cfg.token}`, 'X-GitHub-Api-Version': '2022-11-28' },
   });
+  if (r.status === 404) return {};
   if (!r.ok) throw new Error(`GitHub ${r.status}`);
-  return (await r.json()).items || [];
+  return r.json();
+}
+
+async function readTodos() {
+  const d = await readData('data/todos.json');
+  return d ? d.items || [] : null;
+}
+
+async function readPrivate(key, fallback) {
+  try {
+    const res = await (await caches.open(PRIVATE_CACHE)).match(key);
+    return res ? await res.json() : fallback;
+  } catch { return fallback; }
+}
+
+async function writePrivate(key, value) {
+  await (await caches.open(PRIVATE_CACHE)).put(key, new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } }));
+}
+
+// PMR-Wiki 알림: Apps Script가 data/pmr-alerts.json에 남기고 푸시를 보낸다. 이 기기에서 아직 안 띄운 것만 띄운다.
+async function pmrNotes(now) {
+  const d = await readData('data/pmr-alerts.json');
+  const items = (d && d.items) || [];
+  const seen = await readPrivate('pmr-seen', []);
+  const fresh = items.filter((a) => a.id && !seen.includes(a.id) && now - Date.parse(a.at) < 2 * 86400000);
+  if (fresh.length) await writePrivate('pmr-seen', [...seen, ...fresh.map((a) => a.id)].slice(-300));
+  return fresh.map((a) => ({ title: `PMR-Wiki · ${a.title}`, body: a.body || '', tag: `pmr-${a.id}` }));
+}
+
+// 띄운 알림을 남겨 앱 오른쪽 위 종(알림 기록)에서 다시 볼 수 있게 한다
+async function logNotes(notes) {
+  const log = await readPrivate('notif-log', []);
+  const tags = new Set(log.map((n) => n.tag));
+  const at = new Date().toISOString();
+  for (const n of notes) if (!tags.has(n.tag)) log.unshift({ title: n.title, body: n.body, tag: n.tag, at });
+  await writePrivate('notif-log', log.slice(0, 100));
+  for (const c of await self.clients.matchAll({ type: 'window', includeUncontrolled: true })) c.postMessage({ type: 'notif' });
 }
 
 const list = (arr) => (arr.length > 6 ? [...arr.slice(0, 6), `외 ${arr.length - 6}개`] : arr).join('\n');
@@ -88,6 +125,7 @@ self.addEventListener('push', (e) => {
     } catch (err) {
       notes = [{ title: '대시보드', body: `할 일을 불러오지 못했어요 (${err.message})`, tag: 'error' }];
     }
+    try { notes.push(...await pmrNotes(Date.now())); } catch { /* PMR 알림을 못 읽어도 할 일 알림은 띄운다 */ }
     // 크롬은 푸시를 받고 알림을 하나도 안 띄우면 기본 알림을 띄운다. 이미 보낸 알림이면 조용히 다시 띄운다.
     if (!notes.length) {
       const shown = await self.registration.getNotifications();
@@ -95,8 +133,9 @@ self.addEventListener('push', (e) => {
       notes = [{ title: '대시보드', body: '새 알림이 없어요', tag: 'empty' }];
     }
     await Promise.all(notes.map((n) => self.registration.showNotification(n.title, {
-      body: n.body, tag: n.tag, icon: ICON, badge: BADGE, renotify: false, data: { url: './' },
+      body: n.body, tag: n.tag, icon: ICON, badge: BADGE, renotify: false, data: { url: n.tag.startsWith('pmr-') ? './#pmr' : './' },
     })));
+    try { await logNotes(notes.filter((n) => n.tag !== 'empty')); } catch { /* 기록 실패는 알림에 영향 없음 */ }
   })());
 });
 
@@ -105,8 +144,12 @@ self.addEventListener('notificationclick', (e) => {
   e.notification.close();
   e.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const url = (e.notification.data && e.notification.data.url) || './';
     const win = wins.find((w) => w.url.startsWith(self.registration.scope));
-    if (win) return win.focus();
-    return self.clients.openWindow('./');
+    if (win) {
+      if (url !== './' && 'navigate' in win) await win.navigate(url).catch(() => {});
+      return win.focus();
+    }
+    return self.clients.openWindow(url);
   })());
 });
