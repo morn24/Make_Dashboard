@@ -1,12 +1,14 @@
 'use strict';
 
 // 데이터 형식은 docs/data-format.md 참고
-const FILES = { todos: 'data/todos.json', projects: 'data/projects.json', calendar: 'data/calendar.json' };
+const FILES = { todos: 'data/todos.json', projects: 'data/projects.json', calendar: 'data/calendar.json', push: 'data/push.json' };
 const EMPTY = {
   todos: () => ({ version: 1, updatedAt: null, items: [] }),
   projects: () => ({ version: 1, updatedAt: null, projects: [] }),
   // 캘린더 파일은 Google Apps Script가 만든다. 아직 없으면 missing=true (연결 안내 표시)
   calendar: () => ({ version: 1, updatedAt: null, events: [], missing: true }),
+  // 알림(Web Push): vapidPublicKey는 Apps Script가 쓰고, subscriptions는 폰이 쓴다
+  push: () => ({ version: 1, updatedAt: null, vapidPublicKey: null, subscriptions: [] }),
 };
 const CFG_KEY = 'dash.cfg';
 const CACHE_KEY = 'dash.cache';
@@ -21,7 +23,6 @@ const state = {
   calendar: EMPTY.calendar(),
   demo: false,
   lastWrite: {}, // file -> { oldSha, at }
-  nextScroll: {}, // 프로젝트별 다음 과제 목록 스크롤 위치 (다시 그려도 유지)
   dragging: false, // 끌어서 순서 바꾸는 중이면 다시 그리기를 미룬다
   openGroups: { paused: false, done: false }, // 홀드/완료 묶음 펼침 상태 (다시 그려도 유지)
   busy: 0,
@@ -47,10 +48,6 @@ function getCfg() {
 
 // ---------- 날짜 ----------
 
-function localDate(d = new Date()) {
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
 function isoNow() {
   const d = new Date();
   const off = -d.getTimezoneOffset();
@@ -130,11 +127,6 @@ async function writeFile(cfg, file, data, sha, message) {
 
 // 최신본을 읽고 → 변경을 적용하고 → sha와 함께 저장. 충돌(409/422)이면 다시 시도.
 async function mutate(file, change, message) {
-  if (state.demo) {
-    const next = change(structuredClone(state[file]));
-    next.updatedAt = isoNow();
-    return next;
-  }
   const cfg = getCfg();
   for (let attempt = 0; ; attempt++) {
     const { data, sha } = await readFile(cfg, file);
@@ -164,7 +156,7 @@ async function refresh({ quiet = false } = {}) {
       const [t, p, c] = await Promise.all(
         ['todos', 'projects', 'calendar'].map((f) => fetch(`demo/${f}.json`, { cache: 'no-store' }).then((r) => r.json())),
       );
-      state.todos = t;
+      state.todos = demoTodos(t);
       state.projects = p;
       state.calendar = demoCalendar(c);
       setSync('데모 데이터');
@@ -210,22 +202,22 @@ function setBusy(delta) {
 }
 
 let toastTimer;
-function toast(text) {
-  const el = $('toast');
-  el.textContent = text;
-  el.hidden = false;
+// undo를 주면 "되돌리기" 버튼을 함께 보여준다 (5초)
+function toast(text, undo) {
+  const box = $('toast');
+  box.replaceChildren(el('span', {}, text));
+  if (undo) {
+    const btn = el('button', { type: 'button', class: 'toast-undo' }, '되돌리기');
+    btn.addEventListener('click', () => { box.hidden = true; clearTimeout(toastTimer); undo(); });
+    box.append(btn);
+  }
+  box.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 3000);
+  toastTimer = setTimeout(() => { box.hidden = true; }, undo ? 5000 : 3000);
 }
 
 // ---------- 할 일 규칙 ----------
 
-function isDone(item, today) {
-  return item.repeat === 'daily' ? item.doneOn === today : item.doneOn != null;
-}
-function isVisible(item, today) {
-  return item.repeat === 'daily' || item.doneOn == null || item.doneOn >= today;
-}
 function newId() {
   return 't_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
@@ -237,7 +229,8 @@ async function changeFile(file, change, message) {
   render();
   setBusy(+1);
   try {
-    state[file] = await mutate(file, change, message);
+    // 데모는 저장할 곳이 없으니 화면에 반영한 것으로 끝 (change를 두 번 적용하면 추가가 중복된다)
+    if (!state.demo) state[file] = await mutate(file, change, message);
     if (!state.demo) setSync(`저장됨 · ${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`);
   } catch (e) {
     state[file] = before;
@@ -257,28 +250,211 @@ function toggleTodo(id) {
   const makeDone = target && !isDone(target, today);
   changeTodos((d) => {
     const it = d.items.find((i) => i.id === id);
-    if (it) it.doneOn = makeDone ? today : null;
+    if (!it) return d;
+    if (isRepeating(it)) {
+      recordHistory(it, today, makeDone);
+      // 완료 취소하면 doneOn을 이전 완료일로 되돌린다 (연속 기록이 끊기지 않게)
+      it.doneOn = makeDone ? today : (it.history.filter((x) => x < today).pop() || null);
+    } else {
+      it.doneOn = makeDone ? today : null;
+    }
     return d;
   }, `todo: ${makeDone ? '완료' : '완료 취소'} - ${target ? target.title : id}`);
 }
 
-function addTodo(title, daily) {
-  const item = { id: newId(), title, repeat: daily ? 'daily' : 'none', doneOn: null, createdAt: isoNow() };
-  changeTodos((d) => { d.items.push(item); return d; }, `todo: 추가 - ${title}`);
+// repeat 값: 'none' | 'daily' | 'weekdays' | 'weekend' | 'custom'(days 직접)
+function repeatFields(kind, days) {
+  if (kind === 'daily') return { repeat: 'daily' };
+  if (kind === 'weekdays') return { repeat: 'weekly', days: [1, 2, 3, 4, 5] };
+  if (kind === 'weekend') return { repeat: 'weekly', days: [0, 6] };
+  if (kind === 'custom' && days && days.length) return { repeat: 'weekly', days: [...days].sort((a, b) => a - b) };
+  return { repeat: 'none' };
+}
+
+// 입력 문장에서 날짜·시간을 읽어서 추가한다 ("내일 오후 3시 병원" → 내일, 15:00, "병원").
+// 한 번 할 일은 날짜가 없으면 오늘로 정한다 (Google 캘린더 할 일에 그날로 보이게).
+function addTodo(text, kind) {
+  const p = parseTodoInput(text);
+  const r = repeatFields(kind);
+  const item = { id: newId(), title: p.title, ...r, doneOn: null, createdAt: isoNow() };
+  if (r.repeat === 'none') item.date = p.date || localDate();
+  if (p.time) item.time = p.time;
+  changeTodos((d) => { d.items.push(item); return d; }, `todo: 추가 - ${item.title}`);
+  if (r.repeat === 'none' && item.date > localDate()) toast(`${fmtDay(item.date, localDate())}${item.time ? ` ${item.time}` : ''} 예정으로 추가했어요`);
+}
+
+// 입력하는 동안 읽어 낸 날짜·시간을 미리 보여준다
+function addHint() {
+  const text = $('add-title').value.trim();
+  const p = text ? parseTodoInput(text) : null;
+  const hint = $('add-hint');
+  const show = p && (p.date || p.time);
+  hint.hidden = !show;
+  if (show) {
+    const today = localDate();
+    hint.textContent = `📅 ${p.date ? fmtDay(p.date, today) : '오늘'}${p.time ? ` ${p.time} · ${ALERT_BEFORE_MIN}분 전 알림` : ''} · "${p.title}"`;
+  }
+}
+
+function updateTodo(id, patch, message, undoText) {
+  const before = state.todos.items.find((i) => i.id === id);
+  if (!before) return;
+  const old = structuredClone(before);
+  changeTodos((d) => {
+    const it = d.items.find((i) => i.id === id);
+    if (!it) return d;
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) delete it[k]; else it[k] = v;
+    }
+    return d;
+  }, `todo: ${message} - ${before.title}`);
+  if (undoText) {
+    const keys = Object.keys(patch);
+    toast(undoText, () => updateTodo(id, Object.fromEntries(keys.map((k) => [k, old[k]])), '되돌리기'));
+  }
 }
 
 function deleteTodo(id) {
-  const target = state.todos.items.find((i) => i.id === id);
-  if (!target || !confirm(`"${target.title}" 을(를) 삭제할까요?`)) return;
-  changeTodos((d) => { d.items = d.items.filter((i) => i.id !== id); return d; }, `todo: 삭제 - ${target.title}`);
+  const list = state.todos.items;
+  const idx = list.findIndex((i) => i.id === id);
+  if (idx < 0) return;
+  const item = structuredClone(list[idx]);
+  const afterId = list[idx + 1] ? list[idx + 1].id : null;
+  changeTodos((d) => { d.items = d.items.filter((i) => i.id !== id); return d; }, `todo: 삭제 - ${item.title}`);
+  // 확인창 대신 되돌리기: 원래 자리(다음 항목 앞)에 다시 넣는다
+  toast(`"${item.title}" 삭제됨`, () => changeTodos((d) => {
+    if (d.items.some((i) => i.id === id)) return d;
+    const to = afterId ? d.items.findIndex((i) => i.id === afterId) : -1;
+    if (to < 0) d.items.push(item); else d.items.splice(to, 0, item);
+    return d;
+  }, `todo: 삭제 취소 - ${item.title}`));
 }
 
 function cleanDone() {
   const today = localDate();
   changeTodos((d) => {
-    d.items = d.items.filter((i) => isVisible(i, today));
+    d.items = d.items.filter((i) => !isStale(i, today));
     return d;
   }, 'todo: 지난 완료 항목 정리');
+}
+
+// ---------- 할 일 메뉴 (이름 수정, 반복 요일, 날짜, 내일로, 삭제) ----------
+
+const tm = { id: null, kind: 'none', days: new Set() };
+
+function openTodoMenu(id) {
+  const item = state.todos.items.find((i) => i.id === id);
+  if (!item) return;
+  const today = localDate();
+  tm.id = id;
+  tm.days = new Set(item.repeat === 'weekly' && Array.isArray(item.days) ? item.days : []);
+  tm.kind = item.repeat === 'daily' ? 'daily' : tm.days.size ? 'custom' : 'none';
+  $('tm-title').value = item.title;
+  $('tm-date').value = item.date || '';
+  $('tm-time').value = item.time || '';
+  $('tm-sync').textContent = item.gtask ? '🔗 Google 캘린더 할 일과 연동돼 있어요 (수정·삭제가 함께 반영돼요)'
+    : isRepeating(item) ? '반복 할 일은 Google 캘린더에 올리지 않아요' : '';
+  $('tm-tomorrow').hidden = isRepeating(item) || isDone(item, today);
+  const hist = $('tm-history');
+  hist.hidden = !isRepeating(item);
+  if (isRepeating(item)) {
+    const from = addDays(today, -29);
+    const days = new Set([...(item.history || []), item.doneOn].filter((d) => d && d >= from));
+    hist.textContent = `최근 30일 중 ${days.size}일 완료 · 연속 ${streak(item, today)}번`;
+  }
+  renderTmDays();
+  $('todo-menu').showModal();
+}
+
+function renderTmDays() {
+  for (const b of $('tm-days').children) {
+    const on = b.dataset.kind ? b.dataset.kind === tm.kind : tm.kind === 'custom' && tm.days.has(Number(b.dataset.day));
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+  $('tm-date-row').hidden = tm.kind !== 'none';
+}
+
+function onTmDay(ev) {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  if (b.dataset.kind) {
+    tm.kind = b.dataset.kind;
+    tm.days.clear();
+  } else {
+    const d = Number(b.dataset.day);
+    if (tm.kind !== 'custom') tm.days.clear();
+    if (tm.days.has(d)) tm.days.delete(d); else tm.days.add(d);
+    tm.kind = tm.days.size === 7 ? 'daily' : tm.days.size ? 'custom' : 'none';
+    if (tm.kind === 'daily') tm.days.clear();
+  }
+  renderTmDays();
+}
+
+function saveTodoMenu(ev) {
+  ev.preventDefault();
+  const title = $('tm-title').value.trim();
+  if (!title) return;
+  const r = repeatFields(tm.kind, [...tm.days]);
+  const date = r.repeat === 'none' ? $('tm-date').value || undefined : undefined;
+  const item = state.todos.items.find((i) => i.id === tm.id);
+  $('todo-menu').close();
+  if (!item) return;
+  const time = $('tm-time').value || undefined;
+  const patch = { title, repeat: r.repeat, days: r.days, date, time };
+  const same = Object.entries(patch).every(([k, v]) => JSON.stringify(item[k]) === JSON.stringify(v));
+  if (!same) updateTodo(tm.id, patch, '수정');
+}
+
+function postponeTodo() {
+  $('todo-menu').close();
+  const tomorrow = addDays(localDate(), 1);
+  updateTodo(tm.id, { date: tomorrow }, `내일(${tomorrow})로 미룸`, '내일로 미뤘어요');
+}
+
+// ---------- 화면을 아래로 당겨서 새로고침 ----------
+
+function setupPullToRefresh() {
+  const ind = $('ptr');
+  const LIMIT = 70;
+  let startY = null;
+  let dist = 0;
+  const reset = () => {
+    startY = null;
+    dist = 0;
+    ind.style.transform = '';
+    ind.classList.remove('ready', 'pulling');
+  };
+  document.addEventListener('touchstart', (e) => {
+    if (window.scrollY > 0 || state.dragging || document.querySelector('dialog[open]') || e.touches.length > 1) return;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (startY == null) return;
+    dist = e.touches[0].clientY - startY;
+    if (dist <= 0 || window.scrollY > 0) { reset(); return; }
+    const y = Math.min(dist * 0.5, LIMIT + 20);
+    ind.classList.add('pulling');
+    ind.classList.toggle('ready', dist * 0.5 >= LIMIT);
+    ind.style.transform = `translate(-50%, ${y}px) rotate(${y * 4}deg)`;
+  }, { passive: true });
+  const end = () => {
+    if (startY != null && dist * 0.5 >= LIMIT) refresh();
+    reset();
+  };
+  document.addEventListener('touchend', end);
+  document.addEventListener('touchcancel', reset);
+}
+
+// ---------- Google 캘린더 앱 열기 ----------
+// 안드로이드: intent 주소로 Google 캘린더 앱의 오늘 화면을 연다. 앱이 없으면 웹 캘린더로.
+// 그 밖의 기기: 웹 캘린더 (아이폰은 Google 캘린더 앱이 있으면 이 링크를 앱으로 연다)
+function gcalUrl(day) {
+  const [y, m, d] = day.split('-').map(Number);
+  const path = `calendar.google.com/calendar/r/day/${y}/${m}/${d}`;
+  if (!/Android/i.test(navigator.userAgent)) return `https://${path}`;
+  return `intent://${path}#Intent;scheme=https;package=com.google.android.calendar;`
+    + `S.browser_fallback_url=${encodeURIComponent(`https://${path}`)};end`;
 }
 
 // ---------- 그리기 ----------
@@ -302,7 +478,7 @@ function render() {
   bar.style.width = `${pct}%`;
   bar.classList.toggle('full', pct === 100);
   $('todo-empty').hidden = visible.length > 0;
-  $('clean-done').hidden = visible.length === all.length;
+  $('clean-done').hidden = !all.some((i) => isStale(i, today));
 
   const list = $('todo-list');
   list.replaceChildren(...visible.map((item) => {
@@ -312,15 +488,41 @@ function render() {
     const cb = el('input', { type: 'checkbox' });
     cb.checked = done;
     cb.addEventListener('change', () => toggleTodo(item.id));
-    label.append(cb, el('span', { class: 'title' }, item.title));
-    if (item.repeat === 'daily') label.append(el('span', { class: 'tag' }, '매일'));
-    const del = el('button', { class: 'del', type: 'button', 'aria-label': `${item.title} 삭제`, title: '삭제' }, '✕');
-    del.addEventListener('click', () => deleteTodo(item.id));
+    const text = el('span', { class: 'todo-text' });
+    if (item.time) text.append(el('span', { class: 'todo-time' }, item.time));
+    text.append(el('span', { class: 'title' }, item.title));
+    const tags = el('span', { class: 'tags' });
+    const rep = repeatLabel(item);
+    if (rep) tags.append(el('span', { class: 'tag' }, rep));
+    const s = streak(item, today);
+    if (s >= 2) tags.append(el('span', { class: 'streak', title: `${s}번 연속` }, `🔥${s}`));
+    if (!isRepeating(item) && !done && item.date && item.date < today) {
+      const late = Math.round((new Date(`${today}T00:00:00`) - new Date(`${item.date}T00:00:00`)) / 86400000);
+      tags.append(el('span', { class: 'late' }, `${late}일 지남`));
+    }
+    if (tags.childNodes.length) text.append(tags);
+    label.append(cb, text);
+    const more = el('button', { class: 'del', type: 'button', 'aria-label': `${item.title} 메뉴`, title: '수정·미루기·삭제' }, '⋯');
+    more.addEventListener('click', () => openTodoMenu(item.id));
     // 끝낸 항목은 옮길 수 없지만 줄을 맞추려고 빈 자리를 둔다
     li.append(done ? el('span', { class: 'handle spacer', 'aria-hidden': 'true' }) : handle(item.title));
-    li.append(label, del);
+    li.append(label, more);
     return li;
   }));
+
+  // 날짜를 정해 둔 할 일 (아직 날이 안 됨)
+  const upcoming = all.filter((i) => isUpcoming(i, today)).sort((a, b) => a.date.localeCompare(b.date));
+  const up = $('todo-upcoming');
+  up.hidden = !upcoming.length;
+  if (upcoming.length) {
+    $('todo-upcoming-title').textContent = `예정 ${upcoming.length}개`;
+    $('todo-upcoming-list').replaceChildren(...upcoming.map((item) => {
+      const b = el('button', { type: 'button', class: 'up-item' },
+        el('span', { class: 'up-date' }, `${fmtDay(item.date, today)}${item.time ? ` ${item.time}` : ''}`), el('span', { class: 'title' }, item.title));
+      b.addEventListener('click', () => openTodoMenu(item.id));
+      return el('li', {}, b);
+    }));
+  }
 
   // 프로젝트
   const order = { active: 0, paused: 1, done: 2 };
@@ -393,8 +595,6 @@ function renderProject(p) {
       ...open.map((n, i) => item(n, false, i === 0)),
       ...checked.map((c) => item(c.text, true, false)),
     );
-    list.addEventListener('scroll', () => { state.nextScroll[p.id] = list.scrollTop; });
-    requestAnimationFrame(() => { list.scrollTop = state.nextScroll[p.id] || 0; });
     const title = `다음 과제${open.length ? ` ${open.length}` : ''}${checked.length ? ` · 확인 ${checked.length}` : ''}`;
     card.append(el('div', { class: 'row' }, el('span', { class: 'label' }, title), list));
   }
@@ -404,11 +604,6 @@ function renderProject(p) {
 }
 
 // ---------- 오늘 일정 (Google 캘린더 → data/calendar.json) ----------
-
-function addDays(dateStr, n) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return localDate(new Date(y, m - 1, d + n));
-}
 
 // 종일 일정: start <= 오늘 < end (end는 다음 날, 미포함). 시간 일정: 오늘 0시~24시와 겹치면 오늘 일정.
 function eventsOn(day) {
@@ -431,11 +626,17 @@ function renderCalendar(today, now) {
   $('cal-setup').hidden = !missing;
   const events = missing ? [] : eventsOn(today);
   $('cal-count').textContent = events.length ? `${events.length}개` : '';
+  $('open-gcal').href = gcalUrl(today);
   $('cal-empty').hidden = missing || events.length > 0;
   const tomorrow = missing ? [] : eventsOn(addDays(today, 1));
   $('cal-tomorrow').textContent = tomorrow.length
     ? `내일 ${tomorrow.length}개 · ${tomorrow.slice(0, 2).map((e) => (e.allDay ? '' : `${fmtTime(e.start)} `) + e.title).join(', ')}${tomorrow.length > 2 ? ' …' : ''}`
     : '';
+  // Apps Script는 날짜가 바뀌면 10분 안에 파일을 새로 쓴다. 오늘 날짜가 아니면 자동 동기화가 멈춘 것.
+  const stale = !missing && !state.demo && state.calendar.rangeStart && state.calendar.rangeStart < today
+    && now.getHours() * 60 + now.getMinutes() >= 30;
+  $('cal-stale').hidden = !stale;
+  if (stale) $('cal-stale').textContent = `⚠ 캘린더 자동 동기화가 멈춘 것 같아요 (마지막 ${fmtDay(state.calendar.rangeStart, today)}). Apps Script 실행 기록을 확인해 주세요.`;
   card.hidden = false;
   $('cal-list').replaceChildren(...events.map((e) => {
     const past = !e.allDay && new Date(e.end || e.start) <= now;
@@ -449,6 +650,15 @@ function renderCalendar(today, now) {
     li.append(el('span', { class: 'ev-time' }, when), dot, body);
     return li;
   }));
+}
+
+// 데모 할 일의 "D-1", "D+2" 같은 날짜를 오늘 기준 실제 날짜로 바꾼다
+function demoTodos(t) {
+  const today = localDate();
+  const conv = (v) => (typeof v === 'string' && /^D[+-]\d+$/.test(v) ? addDays(today, Number(v.slice(1))) : v);
+  return { ...t, items: t.items.map((i) => ({
+    ...i, doneOn: conv(i.doneOn), date: conv(i.date), ...(i.history ? { history: i.history.map(conv) } : {}),
+  })) };
 }
 
 // 데모 파일의 일정 날짜를 오늘/내일로 옮긴다
@@ -746,6 +956,118 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 
+// ---------- 알림 (Web Push) ----------
+// Apps Script가 알릴 시각에 "확인해"라는 신호만 보내면, 서비스워커(sw.js)가 할 일을 읽어서 알림을 띄운다.
+// 서비스워커는 localStorage를 못 읽어서, 연결 정보를 Cache Storage에 같이 넣어 둔다.
+
+const PRIVATE_CACHE = 'dash-private';
+const PUSH_KEY = 'dash.push';
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+async function syncSwCfg() {
+  if (!('caches' in window)) return;
+  try {
+    const cfg = getCfg();
+    const cache = await caches.open(PRIVATE_CACHE);
+    if (cfg) await cache.put('cfg', new Response(JSON.stringify(cfg), { headers: { 'Content-Type': 'application/json' } }));
+    else await cache.delete('cfg');
+  } catch { /* 저장 불가 환경이면 무시 */ }
+}
+
+function b64urlToBytes(s) {
+  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+function deviceName() {
+  const ua = navigator.userAgent;
+  const m = ua.match(/;\s*([^;)]+)\s+Build\//) || ua.match(/\(([^;)]+)/);
+  return (m ? m[1] : 'device').trim().slice(0, 40);
+}
+
+async function renderPushStatus() {
+  const st = $('push-status');
+  const on = $('push-on');
+  const off = $('push-off');
+  const test = $('push-test');
+  on.hidden = off.hidden = test.hidden = true;
+  if (!pushSupported()) { st.textContent = '이 브라우저는 알림을 지원하지 않아요. 홈 화면에 설치한 앱에서 켜 주세요.'; return; }
+  if (!getCfg()) { st.textContent = '먼저 위에서 연결을 저장해 주세요.'; return; }
+  if (Notification.permission === 'denied') { st.textContent = '알림이 차단돼 있어요. 폰 설정 → 앱 → 대시보드(또는 Chrome) → 알림에서 허용해 주세요.'; return; }
+  let sub = null;
+  try { sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription(); } catch { /* 무시 */ }
+  const subscribed = sub && load(PUSH_KEY) === sub.endpoint;
+  st.textContent = subscribed
+    ? `켜짐 · 시간 있는 할 일은 ${ALERT_BEFORE_MIN}분 전, 오후 ${SUMMARY_HOUR - 12}시에 못 한 일·내일 할 일`
+    : '꺼짐';
+  on.hidden = !!subscribed;
+  off.hidden = !subscribed;
+  test.hidden = Notification.permission !== 'granted';
+}
+
+async function enablePush() {
+  const btn = $('push-on');
+  btn.disabled = true;
+  try {
+    const cfg = getCfg();
+    const { data } = await readFile(cfg, 'push');
+    if (!data.vapidPublicKey) throw new Error('알림 키가 없어요. Apps Script에서 setup을 한 번 실행해 주세요 (설치 안내 참고)');
+    if (await Notification.requestPermission() !== 'granted') throw new Error('알림 권한을 허용해야 해요');
+    await syncSwCfg();
+    const reg = await navigator.serviceWorker.ready;
+    const key = b64urlToBytes(data.vapidPublicKey);
+    let sub = await reg.pushManager.getSubscription();
+    const sameKey = sub && sub.options.applicationServerKey
+      && new Uint8Array(sub.options.applicationServerKey).join() === key.join();
+    if (sub && !sameKey) { await sub.unsubscribe(); sub = null; }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    const j = sub.toJSON();
+    await mutate('push', (d) => {
+      d.subscriptions = (d.subscriptions || []).filter((x) => x.endpoint !== j.endpoint);
+      d.subscriptions.push({ endpoint: j.endpoint, keys: j.keys, device: deviceName(), createdAt: isoNow() });
+      return d;
+    }, `push: 구독 추가 - ${deviceName()}`);
+    save(PUSH_KEY, j.endpoint);
+    toast('알림을 켰어요');
+  } catch (e) {
+    toast(e instanceof HttpError ? errorText(e) : e.message);
+  } finally {
+    btn.disabled = false;
+    renderPushStatus();
+  }
+}
+
+async function disablePush() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    const endpoint = sub ? sub.endpoint : load(PUSH_KEY);
+    if (sub) await sub.unsubscribe();
+    if (endpoint) {
+      await mutate('push', (d) => {
+        d.subscriptions = (d.subscriptions || []).filter((x) => x.endpoint !== endpoint);
+        return d;
+      }, `push: 구독 해제 - ${deviceName()}`);
+    }
+    remove(PUSH_KEY);
+    toast('알림을 껐어요');
+  } catch (e) {
+    toast(e instanceof HttpError ? errorText(e) : e.message);
+  } finally {
+    renderPushStatus();
+  }
+}
+
+async function testPush() {
+  const reg = await navigator.serviceWorker.ready;
+  await reg.showNotification('대시보드 알림 테스트', {
+    body: '이렇게 보여요. 상단바에는 테두리 안 체크 아이콘이 떠요.',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/badge-96.png',
+    tag: 'test',
+  });
+}
+
 // ---------- 설정 ----------
 
 function openSettings() {
@@ -755,6 +1077,7 @@ function openSettings() {
   $('s-branch').value = c.branch || DEFAULT_CFG.branch;
   $('s-token').value = c.token || '';
   $('s-error').hidden = true;
+  renderPushStatus();
   $('settings').showModal();
 }
 
@@ -773,6 +1096,7 @@ async function saveSettings(ev) {
     // 읽기로 연결을 확인한다 (파일이 아직 없으면 404 → 빈 데이터로 정상 처리)
     await readFile(cfg, 'todos');
     save(CFG_KEY, cfg);
+    syncSwCfg();
     state.lastWrite = {};
     $('settings').close();
     toast('연결됐어요');
@@ -802,11 +1126,13 @@ function init() {
     ev.preventDefault();
     const title = $('add-title').value.trim();
     if (!title) return;
-    addTodo(title, $('add-daily').checked);
+    addTodo(title, $('add-repeat').value);
     $('add-title').value = '';
-    $('add-daily').checked = false;
+    $('add-repeat').value = 'none';
+    addHint();
   });
   $('clean-done').addEventListener('click', cleanDone);
+  $('add-title').addEventListener('input', addHint);
   $('refresh').addEventListener('click', () => refresh());
   $('open-settings').addEventListener('click', openSettings);
   $('banner-settings').addEventListener('click', openSettings);
@@ -816,6 +1142,16 @@ function init() {
     btn.addEventListener('click', () => setProjectStatus(btn.dataset.status));
   }
   $('pm-remove').addEventListener('click', removeProject);
+  $('tm-days').addEventListener('click', onTmDay);
+  $('tm-form').addEventListener('submit', saveTodoMenu);
+  $('tm-cancel').addEventListener('click', () => $('todo-menu').close());
+  $('tm-tomorrow').addEventListener('click', postponeTodo);
+  $('tm-delete').addEventListener('click', () => { $('todo-menu').close(); deleteTodo(tm.id); });
+  setupPullToRefresh();
+  $('push-on').addEventListener('click', enablePush);
+  $('push-off').addEventListener('click', disablePush);
+  $('push-test').addEventListener('click', testPush);
+  syncSwCfg();
   document.addEventListener('pointerdown', startDrag);
   $('pm-close').addEventListener('click', () => $('proj-menu').close());
   $('pm-paste').addEventListener('click', () => { $('proj-menu').close(); openPaste(menuProjectId); });
@@ -829,6 +1165,7 @@ function init() {
     if (!confirm('이 기기에서 연결 정보(토큰)를 지울까요?')) return;
     remove(CFG_KEY);
     remove(CACHE_KEY);
+    syncSwCfg();
     $('settings').close();
     refresh();
   });
