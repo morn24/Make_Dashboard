@@ -279,7 +279,7 @@ private fun TodoEditDialog(existing: Todo?, linkedToGoogle: Boolean, onFinish: (
                         )
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.fillMaxWidth()) {
                     DAY_NAMES.forEachIndexed { day, name ->
                         DayToggle(name, selected = day in lit, enabled = !saving) {
                             val (nextKind, nextDays) = RepeatChoice.toggleDay(kind, customDays, day)
@@ -359,7 +359,7 @@ private fun DayToggle(label: String, selected: Boolean, enabled: Boolean, onClic
     val container = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
     val content = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     Box(
-        modifier = Modifier.size(38.dp).clip(CircleShape).background(container)
+        modifier = Modifier.size(34.dp).clip(CircleShape).background(container)
             .clickable(enabled = enabled, onClick = onClick)
             .semantics { contentDescription = "$label 요일 ${if (selected) "선택됨" else "선택 안 됨"}" },
         contentAlignment = Alignment.Center,

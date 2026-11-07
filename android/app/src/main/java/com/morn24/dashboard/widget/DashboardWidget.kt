@@ -376,7 +376,7 @@ private fun CompactHeader(
     pmrAction: androidx.glance.action.Action,
 ) {
     Row(modifier = GlanceModifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = GlanceModifier.defaultWeight()) {
+        Column(modifier = GlanceModifier.defaultWeight().padding(end = 6.dp)) {
             Text(
                 today.format(DateTimeFormatter.ofPattern("M월 d일 (E)", Locale.KOREAN)),
                 maxLines = 1,
