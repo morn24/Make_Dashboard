@@ -81,6 +81,23 @@ class DebugWidgetSeedActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("할 일·일정·프로젝트 20개 fixture 저장") }
 
+                    Button(
+                        onClick = {
+                            lifecycleScope.launch {
+                                message = "가짜 서버에서 읽는 중…"
+                                message = runCatching { connectToFakeServerAndSync() }
+                                    .getOrElse { "가짜 서버 연결에 실패했어요: ${it.message ?: it.javaClass.simpleName}" }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("가짜 GitHub 서버에서 읽기 (files/debug-api-base.txt 필요)") }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        listOf("2×2" to (150 to 150), "4×2" to (330 to 150), "4×4" to (330 to 420)).forEach { (label, size) ->
+                            Button(onClick = { message = setWidgetSizes(size.first, size.second) }, modifier = Modifier.weight(1f)) { Text(label) }
+                        }
+                    }
+
                     Text("같은 어두운 배경 · 강조색 조합")
                     palettes.chunked(2).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -124,6 +141,42 @@ class DebugWidgetSeedActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /** Gives every widget one size (dp) so each layout can be captured. */
+    private fun setWidgetSizes(width: Int, height: Int): String {
+        val manager = AppWidgetManager.getInstance(this)
+        val ids = widgetIds()
+        ids.forEach { id ->
+            val options = android.os.Bundle().apply {
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, width)
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, width)
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, height)
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, height)
+            }
+            manager.updateAppWidgetOptions(id, options)
+        }
+        lifecycleScope.launch { DashboardWidget().updateAll(this@DebugWidgetSeedActivity) }
+        return "위젯 ${ids.size}개를 ${width}x${height}dp로 지정했어요"
+    }
+
+    /** Saves an anonymous dummy connection and reads every file from the debug endpoint override. */
+    private suspend fun connectToFakeServerAndSync(): String = withContext(Dispatchers.IO) {
+        val base = java.io.File(filesDir, "debug-api-base.txt")
+        check(base.exists()) { "debug-api-base.txt가 없어 실제 주소로 나갈 수 있어요. 중단합니다." }
+        val store = DashboardStore.from(this@DebugWidgetSeedActivity)
+        val cipher = TokenCipher(AndroidKeystoreAesKeyProvider())
+        store.saveSettings(DashboardSettings(encryptedToken = cipher.encrypt("debug-invalid-${System.currentTimeMillis()}")))
+        val snapshot = com.morn24.dashboard.data.DashboardSyncEngine(
+            store = store,
+            repositoryFactory = com.morn24.dashboard.data.DefaultDashboardRepositoryFactory(),
+            tokenCipher = cipher,
+        ).load()
+        val manager = AppWidgetManager.getInstance(this@DebugWidgetSeedActivity)
+        val component = ComponentName(this@DebugWidgetSeedActivity, DashboardWidgetReceiver::class.java)
+        if (widgetIds().size < 3 && manager.isRequestPinAppWidgetSupported) manager.requestPinAppWidget(component, null, null)
+        DashboardWidget().updateAll(this@DebugWidgetSeedActivity)
+        "서버 ${base.readText().trim()} · 할 일 ${snapshot.todos.size} · 프로젝트 ${snapshot.projects.size} · 일정 ${snapshot.calendarEvents.size} · PMR ${snapshot.pmr?.let { "결정 ${it.decisionsNeed}/실패 ${it.failedJobs}" } ?: "없음"} · 오류 ${snapshot.errors.size}"
     }
 
     private fun appearance(paletteId: String, fontScale: Int = 100, opacity: Int = 100) = WidgetAppearance(
