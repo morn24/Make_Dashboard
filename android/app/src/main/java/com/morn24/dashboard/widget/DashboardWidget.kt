@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
@@ -53,18 +54,24 @@ import com.morn24.dashboard.data.AppearanceColorMode
 import com.morn24.dashboard.data.DashboardSnapshot
 import com.morn24.dashboard.data.DashboardStore
 import com.morn24.dashboard.data.DashboardSyncEngine
+import com.morn24.dashboard.data.UndoKind
 import com.morn24.dashboard.data.DefaultDashboardRepositoryFactory
 import com.morn24.dashboard.data.TokenCipher
 import com.morn24.dashboard.data.WidgetAppearance
 import com.morn24.dashboard.data.WidgetConnectionState
 import com.morn24.dashboard.data.WidgetColorResolver
 import com.morn24.dashboard.domain.CalendarOccurrence
+import com.morn24.dashboard.domain.CalendarLinks
 import com.morn24.dashboard.domain.CalendarRules
+import com.morn24.dashboard.domain.PmrChip
+import com.morn24.dashboard.domain.PmrRules
 import com.morn24.dashboard.domain.Project
 import com.morn24.dashboard.domain.ProjectRules
 import com.morn24.dashboard.domain.Todo
 import com.morn24.dashboard.domain.TodoRules
+import com.morn24.dashboard.ui.ProjectNextActivity
 import com.morn24.dashboard.ui.SettingsActivity
+import com.morn24.dashboard.ui.TodoEditActivity
 import com.morn24.dashboard.work.DashboardWorkScheduler
 import java.time.Instant
 import java.time.LocalDate
@@ -189,12 +196,19 @@ private fun WidgetContent(
     val undo = snapshot.undo?.takeIf { it.completedDate == todayText }
     val pendingUndo = snapshot.pendingUndoTodoId
     val nextTimed = if (snapshot.calendarAvailable) CalendarRules.nextTimed(snapshot.calendarEvents, today, zone, now) else null
+    val upcomingCount = TodoRules.upcoming(snapshot.todos, todayText).size
+    val pmrChip = PmrRules.chip(snapshot.pmr, now)
+    val pmrAction = actionStartActivity(Intent(Intent.ACTION_VIEW, PmrRules.pmrUrl(snapshot.webUrl).toUri()))
+    // 4x4: the todo list is the main job, so it gets ~60% of the left column (schedule keeps the rest).
+    val chromeDp = 48 + 30 + 48 + 16 + (if (undo != null) 48 else 0) + (if (hasCompactStatus(snapshot)) 18 else 0)
+    val todoPanelHeight = (((LocalSize.current.height.value - chromeDp - 6) * 0.6f).coerceAtLeast(112f)).dp
     val rootModifier = GlanceModifier.fillMaxSize()
         .background(glanceColor(backgroundArgb(appearance)))
 
     when {
         plan.small -> LazyColumn(modifier = rootModifier.padding(8.dp)) {
-            item(itemId = stableId("header")) { Header(snapshot, today, plan.small, appearance, widgetId) }
+            item(itemId = stableId("header")) { Header(snapshot, today, plan.small, appearance, widgetId, null, pmrAction) }
+            if (pmrChip != null) item(itemId = stableId("pmr-chip")) { PmrChipRow(pmrChip, pmrAction, appearance) }
             item(itemId = stableId("sync-status")) { SyncStatus(snapshot, appearance) }
             if (snapshot.connectionState != WidgetConnectionState.READY) {
                 item(itemId = stableId("connection")) { ConnectionRequired(snapshot, appearance) }
@@ -203,18 +217,18 @@ private fun WidgetContent(
                     Summary(snapshot, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, appearance)
                 }
                 if (undo != null) item(itemId = stableId("undo")) {
-                    UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance)
+                    UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance, undo.kind == UndoKind.DELETION)
                 }
                 item(itemId = stableId("next-event")) { NextEventSummary(snapshot, nextTimed, today, zone, appearance) }
                 item(itemId = stableId("small-todo-panel")) {
-                    SmallTodoPreview(actionableTodos, todayText, snapshot.pendingTodoIds, appearance)
+                    SmallTodoPreview(actionableTodos, todayText, snapshot.pendingTodoIds, appearance, upcomingCount)
                 }
                 item(itemId = stableId("small-all")) { MoreAction("전체 보기", webAction, appearance) }
             }
         }
 
         plan.medium -> Column(modifier = rootModifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
-            CompactHeader(snapshot, today, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, undo, pendingUndo, appearance)
+            CompactHeader(snapshot, today, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, undo, pendingUndo, appearance, pmrChip, pmrAction)
             if (hasCompactStatus(snapshot)) SyncStatus(snapshot, appearance, compact = true)
             if (snapshot.connectionState != WidgetConnectionState.READY) {
                 ConnectionRequired(snapshot, appearance)
@@ -226,8 +240,9 @@ private fun WidgetContent(
                         today = todayText,
                         pendingTodoIds = snapshot.pendingTodoIds,
                         appearance = appearance,
+                        upcoming = upcomingCount,
                         compact = true,
-                    modifier = GlanceModifier.defaultWeight().fillMaxHeight(),
+                        modifier = GlanceModifier.defaultWeight().fillMaxHeight(),
                     )
                     Spacer(GlanceModifier.width(5.dp))
                     Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight()) {
@@ -257,13 +272,13 @@ private fun WidgetContent(
         }
 
         plan.narrowTall -> Column(modifier = rootModifier.padding(8.dp)) {
-            Header(snapshot, today, small = false, appearance = appearance, widgetId = widgetId)
+            Header(snapshot, today, small = false, appearance = appearance, widgetId = widgetId, pmrChip = pmrChip, pmrAction = pmrAction)
             if (snapshot.connectionState != WidgetConnectionState.READY) {
                 ConnectionRequired(snapshot, appearance)
             } else {
                 if (hasCompactStatus(snapshot)) SyncStatus(snapshot, appearance, compact = true)
                 Summary(snapshot, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, appearance)
-                if (undo != null) UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance)
+                if (undo != null) UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance, undo.kind == UndoKind.DELETION)
                 Column(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
                     TodoPanel(
                         todos = actionableTodos,
@@ -271,6 +286,7 @@ private fun WidgetContent(
                         today = todayText,
                         pendingTodoIds = snapshot.pendingTodoIds,
                         appearance = appearance,
+                        upcoming = upcomingCount,
                         compact = true,
                         modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
                     )
@@ -300,13 +316,13 @@ private fun WidgetContent(
         }
 
         else -> Column(modifier = rootModifier.padding(8.dp)) {
-            Header(snapshot, today, small = false, appearance = appearance, widgetId = widgetId)
+            Header(snapshot, today, small = false, appearance = appearance, widgetId = widgetId, pmrChip = pmrChip, pmrAction = pmrAction)
             if (snapshot.connectionState != WidgetConnectionState.READY) {
                 ConnectionRequired(snapshot, appearance)
             } else {
                 if (hasCompactStatus(snapshot)) SyncStatus(snapshot, appearance, compact = true)
                 Summary(snapshot, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, appearance)
-                if (undo != null) UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance)
+                if (undo != null) UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance, undo.kind == UndoKind.DELETION)
                 Row(modifier = GlanceModifier.fillMaxWidth().defaultWeight(), verticalAlignment = Alignment.Top) {
                     Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight()) {
                         TodoPanel(
@@ -315,7 +331,8 @@ private fun WidgetContent(
                             today = todayText,
                             pendingTodoIds = snapshot.pendingTodoIds,
                             appearance = appearance,
-                            modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                            upcoming = upcomingCount,
+                            modifier = GlanceModifier.fillMaxWidth().height(todoPanelHeight),
                         )
                         Spacer(GlanceModifier.height(6.dp))
                         SchedulePanel(
@@ -355,6 +372,8 @@ private fun CompactHeader(
     undo: com.morn24.dashboard.data.CompletedTodoUndo?,
     pendingUndo: String?,
     appearance: WidgetAppearance,
+    pmrChip: PmrChip?,
+    pmrAction: androidx.glance.action.Action,
 ) {
     Row(modifier = GlanceModifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = GlanceModifier.defaultWeight()) {
@@ -369,7 +388,8 @@ private fun CompactHeader(
                 style = bodyStyle(appearance, 8, variant = true),
             )
         }
-        if (undo != null) UndoButton(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance)
+        if (pmrChip != null) PmrChipButton(pmrChip, pmrAction, appearance)
+        if (undo != null) UndoButton(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance, undo.kind == UndoKind.DELETION)
         Box(
             modifier = GlanceModifier.size(48.dp).clickable(actionRunCallback<RefreshWidgetAction>())
                 .semantics { contentDescription = "새로고침, 데이터를 다시 불러옵니다" },
@@ -391,12 +411,12 @@ private fun CompactHeader(
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
-private fun UndoButton(title: String, pending: Boolean, recordId: String, appearance: WidgetAppearance) {
+private fun UndoButton(title: String, pending: Boolean, recordId: String, appearance: WidgetAppearance, deleted: Boolean = false) {
     val modifier = GlanceModifier.size(48.dp)
         .thenIf(!pending) {
             clickable(actionRunCallback<UndoTodoAction>(parameters = actionParametersOf(UndoTodoAction.KEY_RECORD_ID.to(recordId))))
         }
-        .semantics { contentDescription = if (pending) "완료 취소를 저장 중입니다" else "$title 완료 실행 취소" }
+        .semantics { contentDescription = if (pending) "되돌리기를 저장 중입니다" else if (deleted) "$title 삭제 되돌리기" else "$title 완료 실행 취소" }
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Text(if (pending) "…" else "↶", style = TextStyle(fontSize = 21.scaledSp(appearance), color = appearanceAccent(appearance)))
     }
@@ -410,6 +430,7 @@ private fun TodoPanel(
     today: String,
     pendingTodoIds: Set<String>,
     appearance: WidgetAppearance,
+    upcoming: Int = 0,
     compact: Boolean = false,
     modifier: GlanceModifier = GlanceModifier.fillMaxWidth(),
 ) {
@@ -418,7 +439,12 @@ private fun TodoPanel(
     ) {
         PanelRule(SectionTone.TODO, appearance)
         Spacer(GlanceModifier.height(if (compact) 1.dp else 3.dp))
-        SectionLabel("할 일 ${total}개", appearance, SectionTone.TODO)
+        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("할 일 ${total}개", appearance, SectionTone.TODO)
+            Spacer(GlanceModifier.defaultWeight())
+            UpcomingLabel(upcoming, appearance)
+            AddTodoButton(appearance)
+        }
         if (todos.isEmpty()) {
             Text(
                 "오늘 할 일이 없어요",
@@ -432,7 +458,7 @@ private fun TodoPanel(
                     .semantics { contentDescription = "할 일 목록, ${total}개, 세로로 스크롤" },
             ) {
                 items(items = todos, itemId = { todo -> stableId("todo:${todo.id}") }) { todo ->
-                    TodoToggleRow(todo, today, pendingTodoIds, appearance)
+                    TodoToggleRow(todo, today, pendingTodoIds, appearance, showBadges = true)
                 }
             }
         }
@@ -457,7 +483,16 @@ private fun SchedulePanel(
     ) {
         PanelRule(SectionTone.SCHEDULE, appearance)
         Spacer(GlanceModifier.height(1.dp))
-        SectionLabel("오늘 일정 ${total}개", appearance, SectionTone.SCHEDULE)
+        Row(
+            modifier = GlanceModifier.fillMaxWidth().height(32.dp)
+                .clickable(actionRunCallback<OpenCalendarAction>())
+                .semantics { contentDescription = "오늘 일정 ${total}개, 누르면 캘린더 앱에서 오늘을 엽니다" },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SectionLabel("오늘 일정 ${total}개", appearance, SectionTone.SCHEDULE)
+            Spacer(GlanceModifier.defaultWeight())
+            Text("캘린더 ›", maxLines = 1, style = bodyStyle(appearance, 9, variant = true))
+        }
         when {
             !available -> Text(
                 "캘린더 연결 안 됨",
@@ -520,15 +555,21 @@ private fun SmallTodoPreview(
     today: String,
     pendingTodoIds: Set<String>,
     appearance: WidgetAppearance,
+    upcoming: Int,
 ) {
     Column(modifier = sectionPanelModifier(GlanceModifier.fillMaxWidth(), SectionTone.TODO, appearance, "할 일 요약")) {
         PanelRule(SectionTone.TODO, appearance)
-        SectionLabel("할 일 ${todos.size}개", appearance, SectionTone.TODO)
+        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("할 일 ${todos.size}개", appearance, SectionTone.TODO)
+            Spacer(GlanceModifier.defaultWeight())
+            UpcomingLabel(upcoming, appearance)
+            AddTodoButton(appearance)
+        }
         val first = todos.firstOrNull()
         if (first == null) {
             Text("오늘 할 일이 없어요", maxLines = 2, style = bodyStyle(appearance, 10))
         } else {
-            TodoToggleRow(first, today, pendingTodoIds, appearance)
+            TodoToggleRow(first, today, pendingTodoIds, appearance, showBadges = false)
         }
     }
 }
@@ -570,7 +611,15 @@ private fun PanelRule(tone: SectionTone, appearance: WidgetAppearance) {
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
-private fun Header(snapshot: DashboardSnapshot, today: LocalDate, small: Boolean, appearance: WidgetAppearance, widgetId: Int) {
+private fun Header(
+    snapshot: DashboardSnapshot,
+    today: LocalDate,
+    small: Boolean,
+    appearance: WidgetAppearance,
+    widgetId: Int,
+    pmrChip: PmrChip?,
+    pmrAction: androidx.glance.action.Action,
+) {
     Row(modifier = GlanceModifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = GlanceModifier.defaultWeight()) {
             Text(
@@ -584,6 +633,7 @@ private fun Header(snapshot: DashboardSnapshot, today: LocalDate, small: Boolean
             )
             Text(syncLabel(snapshot), maxLines = 1, style = bodyStyle(appearance, 9, variant = true))
         }
+        if (pmrChip != null && !small) PmrChipButton(pmrChip, pmrAction, appearance)
         Box(
             modifier = GlanceModifier.size(48.dp)
                 .clickable(actionRunCallback<RefreshWidgetAction>())
@@ -727,7 +777,13 @@ private fun SectionLabel(label: String, appearance: WidgetAppearance, tone: Sect
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
-private fun TodoToggleRow(todo: Todo, today: String, pendingTodoIds: Set<String>, appearance: WidgetAppearance) {
+private fun TodoToggleRow(
+    todo: Todo,
+    today: String,
+    pendingTodoIds: Set<String>,
+    appearance: WidgetAppearance,
+    showBadges: Boolean,
+) {
     val isDone = TodoRules.isDone(todo, today)
     val isPending = todo.id in pendingTodoIds
     val targetDoneOn = if (isDone) CLEAR_DONE_TARGET else today
@@ -739,46 +795,151 @@ private fun TodoToggleRow(todo: Todo, today: String, pendingTodoIds: Set<String>
             TodoToggleParameters.title.to(todo.title),
         ),
     )
-    val description = when {
-        isPending -> "${todo.title}, 저장 중"
-        isDone -> "${todo.title}, 완료됨"
-        else -> "${todo.title}, 미완료, 완료로 표시"
+    val streak = if (showBadges) TodoRules.streak(todo, today) else 0
+    val late = if (showBadges) TodoRules.lateDays(todo, today) else null
+    val hasBadge = streak >= 2 || late != null
+    val badgeText = listOfNotNull(
+        if (streak >= 2) "🔥$streak" else null,
+        late?.let { "${it}일 지남" },
+    ).joinToString(" · ")
+    val description = buildString {
+        append(todo.title)
+        todo.time?.let { append(", ").append(it) }
+        append(
+            when {
+                isPending -> ", 저장 중"
+                isDone -> ", 완료됨"
+                else -> ", 미완료, 완료로 표시"
+            },
+        )
+        if (streak >= 2) append(", ${streak}번 연속")
+        late?.let { append(", ${it}일 지남") }
     }
+    val context = LocalContext.current
+    val editAction = actionStartActivity(TodoEditActivity.editIntent(context, todo.id))
     val rowModifier = GlanceModifier.fillMaxWidth().height(48.dp)
-        .thenIf(!isPending) { clickable(action) }
-        .semantics { contentDescription = description }
         .padding(horizontal = 3.dp)
     Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            when {
-                isPending -> "…"
-                isDone -> "☑"
-                else -> "□"
-            },
-            style = bodyStyle(appearance, 16, bold = true, accent = isDone),
-        )
-        Text(
-            todo.title,
-            modifier = GlanceModifier.defaultWeight().padding(start = 8.dp),
-            maxLines = 2,
-            style = bodyStyle(appearance, 11, variant = isPending),
-        )
+        // Check target (toggles). The title next to it opens the edit dialog instead.
+        Box(
+            modifier = GlanceModifier.width(44.dp).fillMaxHeight()
+                .thenIf(!isPending) { clickable(action) }
+                .semantics {
+                    contentDescription = when {
+                        isPending -> "${todo.title}, 저장 중"
+                        isDone -> "${todo.title}, 완료됨, 누르면 완료 취소"
+                        else -> "${todo.title}, 미완료, 누르면 완료로 표시"
+                    }
+                },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Text(
+                when {
+                    isPending -> "…"
+                    isDone -> "☑"
+                    else -> "□"
+                },
+                style = bodyStyle(appearance, 16, bold = true, accent = isDone),
+            )
+        }
+        Column(
+            modifier = GlanceModifier.defaultWeight().fillMaxHeight()
+                .thenIf(!isPending) { clickable(editAction) }
+                .semantics { contentDescription = description },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!todo.time.isNullOrEmpty()) {
+                    Text(todo.time + " ", maxLines = 1, style = bodyStyle(appearance, 11, bold = true, accent = true))
+                }
+                Text(
+                    todo.title,
+                    modifier = GlanceModifier.defaultWeight(),
+                    maxLines = if (hasBadge) 1 else 2,
+                    style = bodyStyle(appearance, 11, variant = isPending),
+                )
+            }
+            if (hasBadge) {
+                Text(
+                    badgeText,
+                    maxLines = 1,
+                    style = bodyStyle(appearance, 9, bold = true, error = late != null, accent = late == null),
+                )
+            }
+        }
     }
 }
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
-private fun UndoRow(title: String, pending: Boolean, recordId: String, appearance: WidgetAppearance) {
+private fun AddTodoButton(appearance: WidgetAppearance) {
+    val context = LocalContext.current
+    Box(
+        modifier = GlanceModifier.size(48.dp)
+            .clickable(actionStartActivity(TodoEditActivity.addIntent(context)))
+            .semantics { contentDescription = "할 일 추가" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("＋", style = TextStyle(fontSize = 22.scaledSp(appearance), fontWeight = FontWeight.Bold, color = appearanceAccent(appearance)))
+    }
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun UpcomingLabel(count: Int, appearance: WidgetAppearance) {
+    if (count > 0) {
+        Text("예정 $count", maxLines = 1, style = bodyStyle(appearance, 9, variant = true))
+    }
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun PmrChipButton(chip: PmrChip, action: androidx.glance.action.Action, appearance: WidgetAppearance) {
+    Box(
+        modifier = GlanceModifier.height(48.dp).clickable(action)
+            .semantics { contentDescription = "${chip.text}, 누르면 웹앱 PMR 탭을 엽니다" },
+        contentAlignment = Alignment.Center,
+    ) { PmrChipLabel(chip, appearance) }
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun PmrChipRow(chip: PmrChip, action: androidx.glance.action.Action, appearance: WidgetAppearance) {
+    Box(
+        modifier = GlanceModifier.fillMaxWidth().height(48.dp).clickable(action)
+            .semantics { contentDescription = "${chip.text}, 누르면 웹앱 PMR 탭을 엽니다" },
+        contentAlignment = Alignment.CenterStart,
+    ) { PmrChipLabel(chip, appearance) }
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun PmrChipLabel(chip: PmrChip, appearance: WidgetAppearance) {
+    val colors = WidgetColorResolver.resolve(appearance)
+    val tint = if (chip.warning) colors.error else colors.action
+    Text(
+        chip.text,
+        maxLines = 1,
+        modifier = GlanceModifier.background(glanceColor(WidgetColorResolver.withAlpha(tint, 0x2E)))
+            .cornerRadius(10.dp)
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+        style = bodyStyle(appearance, 9, bold = true, error = chip.warning, accent = !chip.warning),
+    )
+}
+
+@androidx.glance.GlanceComposable
+@androidx.compose.runtime.Composable
+private fun UndoRow(title: String, pending: Boolean, recordId: String, appearance: WidgetAppearance, deleted: Boolean = false) {
     Row(modifier = GlanceModifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(if (pending) "취소 저장 중 · $title" else "최근 완료 · $title", modifier = GlanceModifier.defaultWeight(), maxLines = 2, style = bodyStyle(appearance, 10))
+        Text(if (pending) "되돌리기 저장 중 · $title" else if (deleted) "삭제됨 · $title" else "최근 완료 · $title", modifier = GlanceModifier.defaultWeight(), maxLines = 2, style = bodyStyle(appearance, 10))
         if (!pending) {
             Box(
                 modifier = GlanceModifier.width(84.dp).height(48.dp)
                     .clickable(actionRunCallback<UndoTodoAction>(parameters = actionParametersOf(UndoTodoAction.KEY_RECORD_ID.to(recordId))))
-                    .semantics { contentDescription = "$title 완료 실행 취소" },
+                    .semantics { contentDescription = if (deleted) "$title 삭제 되돌리기" else "$title 완료 실행 취소" },
                 contentAlignment = Alignment.Center,
             ) {
-                Text("실행 취소", style = bodyStyle(appearance, 10, bold = true, accent = true))
+                Text(if (deleted) "되돌리기" else "실행 취소", style = bodyStyle(appearance, 10, bold = true, accent = true))
             }
         }
     }
@@ -846,7 +1007,16 @@ private fun ProjectLine(project: Project, appearance: WidgetAppearance, compact:
                 .semantics { contentDescription = "${project.name} 진행률 ${project.progress}%" },
             color = glanceColor(colors.progress),
         )
-        if (!compact) Text("다음 · ${ProjectRules.nextTask(project) ?: "다음 과제 없음"}", maxLines = 2, style = bodyStyle(appearance, 9, variant = true))
+        if (!compact) {
+            val context = LocalContext.current
+            Box(
+                modifier = GlanceModifier.fillMaxWidth().padding(vertical = 4.dp)
+                    .clickable(actionStartActivity(ProjectNextActivity.intent(context, project.id)))
+                    .semantics { contentDescription = "${project.name} 다음 과제 목록 열기" },
+            ) {
+                Text("다음 · ${ProjectRules.nextTask(project) ?: "다음 과제 없음"}", maxLines = 2, style = bodyStyle(appearance, 9, variant = true))
+            }
+        }
     }
 }
 
@@ -854,6 +1024,21 @@ class RefreshWidgetAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         runCatching { DashboardWidget().update(context, glanceId) }
         DashboardWorkScheduler.requestRefresh(context)
+    }
+}
+
+/** Opens today in the calendar app; falls back to the Google Calendar web page when no app handles it. */
+class OpenCalendarAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val today = LocalDate.now()
+        val zone = ZoneId.systemDefault()
+        val appIntent = Intent(Intent.ACTION_VIEW, CalendarLinks.appUri(today, zone).toUri())
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val webIntent = Intent(Intent.ACTION_VIEW, CalendarLinks.webUrl(today).toUri())
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val opened = appIntent.resolveActivity(context.packageManager) != null &&
+            runCatching { context.startActivity(appIntent) }.isSuccess
+        if (!opened) runCatching { context.startActivity(webIntent) }
     }
 }
 
