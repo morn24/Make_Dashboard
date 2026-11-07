@@ -371,3 +371,21 @@ test('trigger event objects do not force color cache refresh; the explicit actio
   assert.equal(app.requests.filter((request) => request.url.includes('/colors')).length, 2);
   assert.ok(app.requests.filter((request) => request.url.includes('googleapis.com')).every((request) => request.method === 'get'));
 });
+
+test('PMR-Wiki alerts pass PC alerts through and flag jobs missed while the PC was off', () => {
+  const app = createScript();
+  const w = {
+    generatedAt: '2026-11-07T05:00:00+09:00',
+    alerts: [{ id: 'decide-patch-1', level: 'info', title: '결정 필요', body: '패치' }, { id: '', title: 'skip' }],
+    jobs: [
+      { id: 'dtv-ingest', name: 'DTV 자동 ingest', next: '2026-11-07T07:30:00+09:00' },
+      { id: 'dashboard', name: 'dashboard 갱신', next: '2026-11-07T06:00:00+09:00' },
+    ],
+  };
+  const before = app.context.pmrAlerts_(w, Date.parse('2026-11-07T08:30:00+09:00'));
+  assert.deepEqual(Array.from(before, (a) => a.id), ['decide-patch-1']);
+  const after = app.context.pmrAlerts_(w, Date.parse('2026-11-07T09:10:00+09:00'));
+  assert.deepEqual(Array.from(after, (a) => a.id), ['decide-patch-1', 'pc-off-2026-11-07T05:00:00+09:00']);
+  assert.match(after[1].body, /DTV 자동 ingest/);
+  assert.doesNotMatch(after[1].body, /dashboard/);
+});

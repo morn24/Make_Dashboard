@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "updatedAt": "2099-01-01T09:00:00+09:00",
+  "items": [
+    {
+      "at": "2099-01-01T09:00:00+09:00",
+      "id": "decide-patch-20990101-example",
+      "level": "info",
+      "title": "결정 필요",
+      "body": "예시 주제 A 노트에 주사 용량 보강",
+      "source": "pc"
+    },
+    {
+      "at": "2098-12-30T21:10:00+09:00",
+      "id": "pc-off-2098-12-30T17:00:00+09:00",
+      "level": "warn",
+      "title": "PC 꺼짐: 예약 작업 놓침",
+      "body": "주간 lint — PC 마지막 동기화 12-30 17:00",
+      "source": "watchdog"
+    }
+  ]
+}

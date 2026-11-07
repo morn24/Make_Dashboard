@@ -15,6 +15,7 @@
   - `data/push.json`: 폰 알림(Web Push) 구독 정보 (Apps Script가 공개키를, 폰이 구독을 씀)
   - `data/pmr-wiki.json`: PMR-Wiki 정기 작업·학습 후보 상태 (**PC의 PMR-Wiki `tools/dash_sync.py`만** 씀. 웹앱은 읽기만)
   - `data/pmr-commands.json`: PMR-Wiki 탭에서 누른 버튼 명령 (폰이 추가, PC가 실행 후 결과 기록)
+  - `data/pmr-alerts.json`: PMR-Wiki 알림 기록 (**Apps Script만** 씀. 웹앱 알림 기록 창이 읽음)
 
 `data/todos.json`은 Apps Script도 씁니다 (Google 할 일 양방향 동기화). Google **할 일**은 `todos.json`에만 들어가고 `calendar.json`에는 들어가지 않습니다.
 
@@ -253,7 +254,14 @@ PMR-Wiki 보관함의 `tools/dash_sync.py`가 Windows 예약 작업 "PMR-Wiki da
       { "id": "L11", "status": "보류", "topic": "주제", "held": "2026-11-02" }
     ]
   },
-  "recent": [{ "date": "2026-11-06", "kind": "ingest (예약)", "text": "..." }]
+  "recent": [{ "date": "2026-11-06", "kind": "ingest (예약)", "text": "..." }],
+  "decisions": { "need": 1, "auto": 3, "items": [
+    { "id": "patch-20261105-dtv-auto", "kind": "patch", "title": "...", "created": "2026-11-05", "targets": ["노트"],
+      "risk": "...", "state": "need", "reason": "덧붙이기가 아님: ...", "recommend": "승인 — ..." }
+  ] },
+  "reviewDue": { "windowDays": 60, "total": 21, "nearest": "2027-03-29",
+    "items": [{ "note": "slug", "title": "...", "due": "2027-03-29", "daysLeft": 45, "reviewed": "2026-09-29" }] },
+  "alerts": [{ "id": "job-weekly-lint-error-2026-11-10", "level": "error", "title": "주간 lint: 실패", "body": "..." }]
 }
 ```
 
@@ -267,6 +275,9 @@ PMR-Wiki 보관함의 `tools/dash_sync.py`가 Windows 예약 작업 "PMR-Wiki da
 | `learning.nextAuto` | 다음 야간 자동 학습이 고를 후보 (최근 `cooldownDays`일 안에 요청한 후보는 건너뜀, `cooldownUntil`까지 쉼) |
 | `topics[].request` | uptodate 학습 AI 요청(`study/ai_requests.json`)의 그 후보 최신 상태: `pending`·`running`·`done`·`failed` |
 | `recent` | `log.md` 최근 10건 (최신이 먼저) |
+| `decisions.items[].state` | `need` 사람이 정할 것(버튼 표시: 자동 교차검증 불일치·덧붙이기 아닌 패치, 결정 묶음·상충), `auto` 예약 실행이 처리할 것(검증 대기·적용 대기·보류 정리), `info` 참고 자료(체크리스트·lint 보고) |
+| `reviewDue` | `review_due`가 `windowDays`일 안인 확정(reviewed·applied) 노트. `daysLeft`가 음수면 지남 |
+| `alerts` | 알림 후보. Apps Script가 처음 보는 `id`만 푸시한다(작업 실패는 작업·상태·날짜별 한 번, 결정 대기는 항목별 한 번) |
 
 ## `data/pmr-commands.json` (PMR-Wiki 탭 버튼)
 
@@ -285,9 +296,28 @@ PMR-Wiki 보관함의 `tools/dash_sync.py`가 Windows 예약 작업 "PMR-Wiki da
 
 | 필드 | 뜻 |
 |---|---|
-| `action` | `start` = AI에게 맡기기(uptodate `study_ai_requests.py request-wiki`), `hold` = 공부 안 함, `unhold` = 되돌리기 (둘 다 PMR-Wiki `dtv_bridge.py hold/unhold`) |
-| `target` | 학습 후보 번호 `L숫자`만 |
+| `action` | `decide` = 결정 대기 항목에 `choice`(`approve` 추천대로·`hold` 보류)를 기록(PMR-Wiki `dash_sync.py`, `target`은 `90_review` 파일 이름). `start` = AI에게 맡기기(uptodate `study_ai_requests.py request-wiki`), `hold` = 공부 안 함, `unhold` = 되돌리기 (둘 다 PMR-Wiki `dtv_bridge.py hold/unhold`) |
+| `target` | `decide`는 `90_review` 파일 이름(확장자 없이), 나머지는 학습 후보 번호 `L숫자` |
 | `status` | 폰이 `pending`으로 추가 → PC가 실행 후 `done`/`failed`와 `note`, `doneAt`을 쓴다 |
 
 - 폰은 같은 `action`+`target`의 `pending`이 이미 있으면 더하지 않는다. 아직 `pending`인 명령만 취소(삭제)할 수 있다.
 - PC는 `pending`만 실행하고, 끝난 명령은 7일 지나면 지운다 (최대 50개 유지).
+
+## `data/pmr-alerts.json` (PMR-Wiki 알림 기록)
+
+Apps Script(`checkPmr_`, 10분마다)가 `data/pmr-wiki.json`의 `alerts`와, PC가 꺼져 예약 작업 시각이 90분 넘게 지났는데 동기화가 없는 경우(`pc-off-<generatedAt>`)를 보고 **처음 보는 id만** 여기에 남기고 푸시 신호를 보낸다.
+폰의 서비스워커는 신호를 받으면 이 파일에서 그 기기가 아직 띄우지 않은 항목(최근 2일)을 알림으로 띄운다.
+웹앱 오른쪽 위 종(알림 기록)은 이 파일과, 그 기기에 실제로 뜬 알림 기록(Cache Storage `dash-private`의 `notif-log`, 최근 100개)을 합쳐 보여 준다.
+
+```json
+{
+  "version": 1,
+  "updatedAt": "2026-11-07T09:10:00+09:00",
+  "items": [
+    { "at": "2026-11-07T09:10:00+09:00", "id": "pc-off-2026-11-07T05:00:00+09:00", "level": "warn",
+      "title": "PC 꺼짐: 예약 작업 놓침", "body": "DTV 자동 ingest — PC 마지막 동기화 11-07 05:00", "source": "watchdog" }
+  ]
+}
+```
+
+- 최신이 먼저, 60일·100개까지. `source`: `pc`(PC가 올린 알림) 또는 `watchdog`(Apps Script가 PC 꺼짐을 감지).

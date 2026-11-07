@@ -3,13 +3,15 @@
 // 데이터 형식은 docs/data-format.md 참고
 const FILES = {
   todos: 'data/todos.json', projects: 'data/projects.json', calendar: 'data/calendar.json', push: 'data/push.json',
-  pmr: 'data/pmr-wiki.json', pmrCmd: 'data/pmr-commands.json',
+  pmr: 'data/pmr-wiki.json', pmrCmd: 'data/pmr-commands.json', pmrAlerts: 'data/pmr-alerts.json',
 };
 const EMPTY = {
   // PMR-Wiki 상태는 PC(tools/dash_sync.py)만 쓴다. 아직 없으면 missing=true (안내 표시)
   pmr: () => ({ version: 1, generatedAt: null, jobs: [], missing: true }),
   // 폰 버튼 명령: 폰이 pending으로 추가하고 PC가 실행 후 done/failed로 바꾼다
   pmrCmd: () => ({ version: 1, updatedAt: null, items: [] }),
+  // PMR-Wiki 알림 기록: Apps Script가 푸시를 보낼 때 남긴다 (작업 실패·PC 꺼짐·새 결정 대기)
+  pmrAlerts: () => ({ version: 1, updatedAt: null, items: [] }),
   todos: () => ({ version: 1, updatedAt: null, items: [] }),
   projects: () => ({ version: 1, updatedAt: null, projects: [] }),
   // 캘린더 파일은 Google Apps Script가 만든다. 아직 없으면 missing=true (연결 안내 표시)
@@ -30,6 +32,7 @@ const state = {
   calendar: EMPTY.calendar(),
   pmr: EMPTY.pmr(),
   pmrCmd: EMPTY.pmrCmd(),
+  pmrAlerts: EMPTY.pmrAlerts(),
   tab: 'home',
   demo: false,
   lastWrite: {}, // file -> { oldSha, at }
@@ -163,27 +166,29 @@ async function refresh({ quiet = false } = {}) {
   setBusy(+1);
   try {
     if (state.demo) {
-      const [t, p, c, w] = await Promise.all(
-        ['todos', 'projects', 'calendar', 'pmr-wiki'].map((f) => fetch(`demo/${f}.json`, { cache: 'no-store' }).then((r) => r.json())),
+      const [t, p, c, w, a] = await Promise.all(
+        ['todos', 'projects', 'calendar', 'pmr-wiki', 'pmr-alerts'].map((f) => fetch(`demo/${f}.json`, { cache: 'no-store' }).then((r) => r.json())),
       );
+      state.pmrAlerts = a;
       state.todos = demoTodos(t);
       state.projects = p;
       state.calendar = demoCalendar(c);
       state.pmr = w;
       setSync('데모 데이터');
     } else {
-      const [t, p, c, w, m] = await Promise.all(
-        ['todos', 'projects', 'calendar', 'pmr', 'pmrCmd'].map((f) => readFile(cfg, f)),
+      const [t, p, c, w, m, a] = await Promise.all(
+        ['todos', 'projects', 'calendar', 'pmr', 'pmrCmd', 'pmrAlerts'].map((f) => readFile(cfg, f)),
       );
       state.calendar = c.data;
       state.pmr = w.data;
+      state.pmrAlerts = a.data;
       for (const [file, got] of [['todos', t], ['projects', p], ['pmrCmd', m]]) {
         const lw = state.lastWrite[file];
         const stale = lw && Date.now() - lw.at < STALE_GUARD_MS && got.sha === lw.oldSha;
         if (!stale) state[file] = got.data;
       }
       save(CACHE_KEY, {
-        todos: state.todos, projects: state.projects, calendar: state.calendar, pmr: state.pmr, pmrCmd: state.pmrCmd, at: Date.now(),
+        todos: state.todos, projects: state.projects, calendar: state.calendar, pmr: state.pmr, pmrCmd: state.pmrCmd, pmrAlerts: state.pmrAlerts, at: Date.now(),
       });
       setSync(`동기화됨 · ${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`);
     }
@@ -479,6 +484,7 @@ function gcalUrl(day) {
 // ---------- 그리기 ----------
 
 function render() {
+  renderNotifBadge();
   if (state.dragging) return;
   const today = localDate();
   const now = new Date();
@@ -669,7 +675,8 @@ function renderPmr() {
   const bad = jobs.filter((j) => j.state === 'warn' || j.state === 'error');
   const ageH = w.generatedAt ? (Date.now() - new Date(w.generatedAt).getTime()) / 3600000 : Infinity;
   const stale = !w.missing && ageH > PMR_STALE_H;
-  $('pmr-dot').hidden = !(bad.length || stale);
+  const need = (w.decisions && w.decisions.need) || 0;
+  $('pmr-dot').hidden = !(bad.length || stale || need);
   $('pmr-dot').className = `tab-dot ${bad.some((j) => j.state === 'error') ? 'error' : 'warn'}`;
   $('pmr-missing').hidden = !w.missing;
   $('pmr-body').hidden = !!w.missing;
@@ -679,6 +686,8 @@ function renderPmr() {
   $('pmr-stale').hidden = !stale;
   $('pmr-stale').textContent = stale ? `PC 상태가 ${Math.floor(ageH)}시간째 올라오지 않았어요. PC가 꺼져 있거나 "PMR-Wiki dash sync" 작업이 멈췄을 수 있어요.` : '';
   $('pmr-jobs').replaceChildren(...jobs.map(renderJob));
+  renderDecisions(w.decisions);
+  renderReviewDue(w.reviewDue);
 
   // 학습 후보: 표 순서가 곧 우선순위 (야간 자동 학습이 이 순서로, 최근 30일 요청은 건너뛰고 고른다)
   const l = w.learning || {};
@@ -761,6 +770,83 @@ function renderTopic(t, nextAuto) {
   details.append(body);
   li.append(details);
   return li;
+}
+
+// 결정 대기: 사람 몫(need)만 버튼을 준다. 나머지(auto)는 PC 예약 실행이 알아서 처리한다
+const DEC_KIND = { patch: '패치', decide: '결정 묶음', conflict: '상충', checklist: '검토 체크리스트', lint: 'lint 보고' };
+const DEC_CHOICE = { approve: '추천대로', hold: '보류' };
+
+function renderDecisions(dec) {
+  const items = (dec && Array.isArray(dec.items)) ? dec.items : [];
+  const need = items.filter((x) => x.state === 'need');
+  const rest = items.filter((x) => x.state !== 'need');
+  $('dec-count').textContent = need.length ? `${need.length}건` : '';
+  $('dec-help').textContent = need.length
+    ? '자동 검증으로 처리하지 못한 것만 여기 와요. 누르면 다음 예약 실행(07:30)에 반영돼요.'
+    : '지금 정하실 것은 없어요. 덧붙이기 패치는 교차검증을 통과하면 자동으로 적용돼요.';
+  $('dec-list').replaceChildren(...need.map(renderDecision));
+  $('dec-auto').hidden = !rest.length;
+  const autoN = rest.filter((x) => x.state === 'auto').length;
+  $('dec-auto-title').textContent = `자동 처리 중 ${autoN}건${rest.length > autoN ? ` · 참고 자료 ${rest.length - autoN}건` : ''}`;
+  $('dec-auto-list').replaceChildren(...rest.map(renderDecision));
+}
+
+function renderDecision(it) {
+  const li = el('li', { class: 'topic dec' });
+  const details = el('details');
+  const badges = el('span', { class: 'tags' }, el('span', { class: 'tag muted' }, DEC_KIND[it.kind] || it.kind));
+  const waiting = (state.pmrCmd.items || []).find((c) => c.status === 'pending' && c.action === 'decide' && c.target === it.id);
+  if (waiting) badges.append(el('span', { class: 'tag busy' }, `${DEC_CHOICE[waiting.choice]} · PC 반영 대기`));
+  else if (it.state === 'auto') badges.append(el('span', { class: 'tag' }, '자동'));
+  details.append(el('summary', {}, el('span', { class: 'tp-main' }, el('span', { class: 'tp-title' }, it.title), badges)));
+  const body = el('div', { class: 'tp-body' });
+  if (it.targets && it.targets.length) body.append(el('p', {}, el('b', {}, '대상 '), it.targets.join(', ')));
+  if (it.risk) body.append(el('p', {}, el('b', {}, '위험도 '), it.risk));
+  if (it.reason) body.append(el('p', {}, el('b', {}, it.state === 'need' ? '왜 여기 왔나 ' : '상태 '), it.reason));
+  if (it.recommend) body.append(el('p', {}, el('b', {}, '추천 '), it.recommend));
+  body.append(el('p', { class: 'help' }, `90_review/${it.id}.md${it.created ? ` · ${it.created}` : ''}`));
+  const last = (state.pmrCmd.items || []).filter((c) => c.target === it.id && c.status !== 'pending').slice(-1)[0];
+  if (last) body.append(el('p', { class: last.status === 'failed' ? 'error' : 'help' }, `폰 결정 ${DEC_CHOICE[last.choice] || ''}: ${last.note || last.status}`));
+  if (it.state === 'need') {
+    const actions = el('div', { class: 'tp-actions' });
+    for (const [choice, cls] of [['approve', 'step'], ['hold', 'ghost']]) {
+      const b = el('button', { type: 'button', class: cls }, DEC_CHOICE[choice]);
+      b.disabled = !!waiting;
+      b.addEventListener('click', () => sendDecision(it, choice));
+      actions.append(b);
+    }
+    body.append(actions);
+  }
+  details.append(body);
+  li.append(details);
+  return li;
+}
+
+function sendDecision(it, choice) {
+  const ask = choice === 'approve'
+    ? `"${it.title}"\n추천대로 진행할까요? 다음 예약 실행(07:30)이 반영해요.`
+    : `"${it.title}"\n보류할까요? 반영하지 않고 정리돼요.`;
+  if (!confirm(ask)) return;
+  if (state.demo) { toast('데모 모드에서는 보내지 않아요'); return; }
+  const id = newId().replace(/^t_/, 'c_');
+  changePmrCmd((d) => {
+    d.items = Array.isArray(d.items) ? d.items : [];
+    if (!d.items.some((c) => c.status === 'pending' && c.action === 'decide' && c.target === it.id)) {
+      d.items.push({ id, action: 'decide', choice, target: it.id, title: it.title, status: 'pending', requestedAt: isoNow() });
+    }
+    return d;
+  }, `pmr: ${DEC_CHOICE[choice]} ${it.id}`).then((ok) => { if (ok) toast(`${DEC_CHOICE[choice]} — PC에서 반영 대기`, () => cancelPmrCommand(id)); });
+}
+
+function renderReviewDue(rd) {
+  const items = (rd && Array.isArray(rd.items)) ? rd.items : [];
+  $('due-count').textContent = items.length ? `${items.length}개` : '';
+  $('due-help').textContent = !rd ? ''
+    : items.length ? `${rd.windowDays}일 안에 검토 기한이 오는 확정 노트예요.`
+      : `${rd.windowDays}일 안에 기한이 오는 노트는 없어요${rd.nearest ? ` · 가장 가까운 기한 ${rd.nearest} (확정 노트 ${rd.total}개)` : ''}.`;
+  $('due-list').replaceChildren(...items.map((r) => el('li', { class: r.daysLeft < 0 ? 'over' : r.daysLeft <= 14 ? 'soon' : '' },
+    el('span', { class: 'due-title' }, r.title),
+    el('span', { class: 'due-when' }, r.daysLeft < 0 ? `${-r.daysLeft}일 지남` : r.daysLeft === 0 ? '오늘' : `D-${r.daysLeft}`))));
 }
 
 function sendPmrCommand(action, t) {
@@ -1261,6 +1347,78 @@ async function testPush() {
   });
 }
 
+// ---------- 알림 기록 (오른쪽 위 종) ----------
+// 이 기기에 뜬 알림은 서비스워커가 Cache Storage 'notif-log'에 남긴다. PMR-Wiki 알림은 data/pmr-alerts.json에도
+// 있어서 다른 기기에서 받은 것이나 알림이 꺼져 있던 동안의 것도 함께 보여 준다(tag로 중복 제거).
+
+const NOTIF_SEEN_KEY = 'dash.notifSeen';
+let notifCache = [];
+
+async function readNotifLog() {
+  if (!('caches' in window)) return [];
+  try {
+    const res = await (await caches.open(PRIVATE_CACHE)).match('notif-log');
+    const items = res ? await res.json() : [];
+    return Array.isArray(items) ? items : [];
+  } catch { return []; }
+}
+
+async function notifEntries() {
+  const local = await readNotifLog();
+  const seen = new Set(local.map((n) => n.tag));
+  const pmr = ((state.pmrAlerts && state.pmrAlerts.items) || [])
+    .map((a) => ({ title: a.title, body: a.body, at: a.at, tag: `pmr-${a.id}`, src: 'PMR-Wiki' }))
+    .filter((a) => !seen.has(a.tag));
+  return [...local, ...pmr].map((n) => ({ ...n, ts: Date.parse(n.at) || 0 })).filter((n) => n.ts).sort((a, b) => b.ts - a.ts).slice(0, 80);
+}
+
+async function renderNotifBadge() {
+  notifCache = await notifEntries();
+  const since = Number(load(NOTIF_SEEN_KEY)) || 0;
+  const unread = notifCache.filter((n) => n.ts > since).length;
+  const badge = $('notif-badge');
+  badge.hidden = !unread;
+  badge.textContent = unread > 9 ? '9+' : String(unread);
+  $('open-notifs').setAttribute('aria-label', unread ? `알림 기록 (새 알림 ${unread}개)` : '알림 기록');
+  if (!$('notif-pop').hidden) renderNotifList();
+}
+
+function renderNotifList() {
+  const since = Number(load(NOTIF_SEEN_KEY)) || 0;
+  $('notif-empty').hidden = notifCache.length > 0;
+  $('notif-list').replaceChildren(...notifCache.map((n) => el('li', { class: n.ts > since ? 'new' : '' },
+    el('div', { class: 'np-row' }, el('span', { class: 'np-title' }, n.title || ''), el('span', { class: 'np-time' }, fmtStamp(n.at))),
+    n.body ? el('div', { class: 'np-body' }, n.body) : '')));
+}
+
+async function toggleNotifPop(open) {
+  const pop = $('notif-pop');
+  const show = open ?? pop.hidden;
+  if (show) {
+    notifCache = await notifEntries();
+    const since = Number(load(NOTIF_SEEN_KEY)) || 0;
+    pop.hidden = false;
+    renderNotifList();
+    const newest = notifCache.length ? notifCache[0].ts : 0;
+    if (newest > since) save(NOTIF_SEEN_KEY, newest); // 목록은 열기 전 기준으로 새 알림을 표시하고, 다음부터는 읽은 것으로 본다
+    $('notif-badge').hidden = true;
+  } else {
+    pop.hidden = true;
+  }
+  $('open-notifs').setAttribute('aria-expanded', String(show));
+}
+
+function setupNotifPop() {
+  $('open-notifs').addEventListener('click', (e) => { e.stopPropagation(); toggleNotifPop(); });
+  // 창 밖을 누르면 닫는다 (창 안의 스크롤·선택은 그대로)
+  document.addEventListener('pointerdown', (e) => {
+    if (!$('notif-pop').hidden && !$('notif-pop').contains(e.target) && !$('open-notifs').contains(e.target)) toggleNotifPop(false);
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('notif-pop').hidden) toggleNotifPop(false); });
+  // 앱이 열려 있을 때 알림이 오면 서비스워커가 알려 준다
+  if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'notif') renderNotifBadge(); });
+}
+
 // ---------- 설정 ----------
 
 function openSettings() {
@@ -1314,9 +1472,11 @@ function init() {
     state.calendar = cached.calendar || state.calendar;
     state.pmr = cached.pmr || state.pmr;
     state.pmrCmd = cached.pmrCmd || state.pmrCmd;
+    state.pmrAlerts = cached.pmrAlerts || state.pmrAlerts;
   }
   state.tab = location.hash === '#pmr' ? 'pmr' : (load(TAB_KEY) || 'home');
   for (const btn of document.querySelectorAll('.tab')) btn.addEventListener('click', () => setTab(btn.dataset.tab));
+  window.addEventListener('hashchange', () => { if (location.hash === '#pmr') setTab('pmr'); }); // PMR 알림을 누르면 이 탭으로
   render();
 
   $('add-form').addEventListener('submit', (ev) => {
@@ -1348,6 +1508,7 @@ function init() {
   $('push-on').addEventListener('click', enablePush);
   $('push-off').addEventListener('click', disablePush);
   $('push-test').addEventListener('click', testPush);
+  setupNotifPop();
   syncSwCfg();
   document.addEventListener('pointerdown', startDrag);
   $('pm-close').addEventListener('click', () => $('proj-menu').close());
