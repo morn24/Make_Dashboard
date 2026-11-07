@@ -438,8 +438,8 @@ private fun TodoPanel(
         modifier = sectionPanelModifier(modifier, SectionTone.TODO, appearance, "오늘 할 일 목록, ${total}개"),
     ) {
         PanelRule(SectionTone.TODO, appearance)
-        Spacer(GlanceModifier.height(if (compact) 1.dp else 3.dp))
-        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(GlanceModifier.height(1.dp))
+        Row(modifier = GlanceModifier.fillMaxWidth().height(RowMetrics.header), verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("할 일 ${total}개", appearance, SectionTone.TODO)
             Spacer(GlanceModifier.defaultWeight())
             UpcomingLabel(upcoming, appearance)
@@ -458,7 +458,7 @@ private fun TodoPanel(
                     .semantics { contentDescription = "할 일 목록, ${total}개, 세로로 스크롤" },
             ) {
                 items(items = todos, itemId = { todo -> stableId("todo:${todo.id}") }) { todo ->
-                    TodoToggleRow(todo, today, pendingTodoIds, appearance, showBadges = true)
+                    TodoToggleRow(todo, today, pendingTodoIds, appearance, showBadges = true, compact = compact)
                 }
             }
         }
@@ -484,7 +484,7 @@ private fun SchedulePanel(
         PanelRule(SectionTone.SCHEDULE, appearance)
         Spacer(GlanceModifier.height(1.dp))
         Row(
-            modifier = GlanceModifier.fillMaxWidth().height(32.dp)
+            modifier = GlanceModifier.fillMaxWidth().height(RowMetrics.header)
                 .clickable(actionRunCallback<OpenCalendarAction>())
                 .semantics { contentDescription = "오늘 일정 ${total}개, 누르면 캘린더 앱에서 오늘을 엽니다" },
             verticalAlignment = Alignment.CenterVertically,
@@ -559,7 +559,7 @@ private fun SmallTodoPreview(
 ) {
     Column(modifier = sectionPanelModifier(GlanceModifier.fillMaxWidth(), SectionTone.TODO, appearance, "할 일 요약")) {
         PanelRule(SectionTone.TODO, appearance)
-        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier = GlanceModifier.fillMaxWidth().height(RowMetrics.header), verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("할 일 ${todos.size}개", appearance, SectionTone.TODO)
             Spacer(GlanceModifier.defaultWeight())
             UpcomingLabel(upcoming, appearance)
@@ -569,9 +569,29 @@ private fun SmallTodoPreview(
         if (first == null) {
             Text("오늘 할 일이 없어요", maxLines = 2, style = bodyStyle(appearance, 10))
         } else {
-            TodoToggleRow(first, today, pendingTodoIds, appearance, showBadges = false)
+            TodoToggleRow(first, today, pendingTodoIds, appearance, showBadges = false, compact = true)
         }
     }
+}
+
+/**
+ * Shared list metrics: the todo panel and the schedule panel use the same header height, row
+ * height, title size, horizontal padding and leading-column width, so the check glyph and the
+ * event colour dot are centred in identical columns and titles start at the same x.
+ */
+private object RowMetrics {
+    val header = 40.dp
+    val row = 44.dp
+    val rowCompact = 40.dp
+    val leading = 40.dp
+    val horizontalPadding = 3.dp
+    const val TITLE_SP = 11
+    const val TITLE_SP_COMPACT = 10
+    const val GLYPH_SP = 13
+    const val BADGE_SP = 9
+
+    fun rowHeight(compact: Boolean) = if (compact) rowCompact else row
+    fun titleSp(compact: Boolean) = if (compact) TITLE_SP_COMPACT else TITLE_SP
 }
 
 private enum class SectionTone { TODO, SCHEDULE, PROJECT }
@@ -783,6 +803,7 @@ private fun TodoToggleRow(
     pendingTodoIds: Set<String>,
     appearance: WidgetAppearance,
     showBadges: Boolean,
+    compact: Boolean = false,
 ) {
     val isDone = TodoRules.isDone(todo, today)
     val isPending = todo.id in pendingTodoIds
@@ -801,7 +822,7 @@ private fun TodoToggleRow(
     val badgeText = listOfNotNull(
         if (streak >= 2) "🔥$streak" else null,
         late?.let { "${it}일 지남" },
-    ).joinToString(" · ")
+    ).joinToString(" ")
     val description = buildString {
         append(todo.title)
         todo.time?.let { append(", ").append(it) }
@@ -817,12 +838,15 @@ private fun TodoToggleRow(
     }
     val context = LocalContext.current
     val editAction = actionStartActivity(TodoEditActivity.editIntent(context, todo.id))
-    val rowModifier = GlanceModifier.fillMaxWidth().height(48.dp)
-        .padding(horizontal = 3.dp)
-    Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
-        // Check target (toggles). The title next to it opens the edit dialog instead.
+    val titleSp = RowMetrics.titleSp(compact)
+    Row(
+        modifier = GlanceModifier.fillMaxWidth().height(RowMetrics.rowHeight(compact))
+            .padding(horizontal = RowMetrics.horizontalPadding),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Leading column (same width as the event colour-dot column): toggles the todo.
         Box(
-            modifier = GlanceModifier.width(44.dp).fillMaxHeight()
+            modifier = GlanceModifier.width(RowMetrics.leading).fillMaxHeight()
                 .thenIf(!isPending) { clickable(action) }
                 .semantics {
                     contentDescription = when {
@@ -831,7 +855,7 @@ private fun TodoToggleRow(
                         else -> "${todo.title}, 미완료, 누르면 완료로 표시"
                     }
                 },
-            contentAlignment = Alignment.CenterStart,
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 when {
@@ -839,31 +863,31 @@ private fun TodoToggleRow(
                     isDone -> "☑"
                     else -> "□"
                 },
-                style = bodyStyle(appearance, 16, bold = true, accent = isDone),
+                style = bodyStyle(appearance, RowMetrics.GLYPH_SP, bold = true, accent = isDone),
             )
         }
-        Column(
+        // Title area (time + title) opens the edit dialog; the badge sits in a fixed trailing column.
+        Row(
             modifier = GlanceModifier.defaultWeight().fillMaxHeight()
                 .thenIf(!isPending) { clickable(editAction) }
                 .semantics { contentDescription = description },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (!todo.time.isNullOrEmpty()) {
-                    Text(todo.time + " ", maxLines = 1, style = bodyStyle(appearance, 11, bold = true, accent = true))
-                }
-                Text(
-                    todo.title,
-                    modifier = GlanceModifier.defaultWeight(),
-                    maxLines = if (hasBadge) 1 else 2,
-                    style = bodyStyle(appearance, 11, variant = isPending),
-                )
+            if (!todo.time.isNullOrEmpty()) {
+                Text(todo.time + " ", maxLines = 1, style = bodyStyle(appearance, titleSp, bold = true, accent = true))
             }
+            Text(
+                todo.title,
+                modifier = GlanceModifier.defaultWeight(),
+                maxLines = if (hasBadge) 1 else 2,
+                style = bodyStyle(appearance, titleSp, variant = isPending),
+            )
             if (hasBadge) {
                 Text(
                     badgeText,
                     maxLines = 1,
-                    style = bodyStyle(appearance, 9, bold = true, error = late != null, accent = late == null),
+                    modifier = GlanceModifier.padding(start = 4.dp),
+                    style = bodyStyle(appearance, RowMetrics.BADGE_SP, bold = true, error = late != null, accent = late == null),
                 )
             }
         }
@@ -875,12 +899,12 @@ private fun TodoToggleRow(
 private fun AddTodoButton(appearance: WidgetAppearance) {
     val context = LocalContext.current
     Box(
-        modifier = GlanceModifier.size(48.dp)
+        modifier = GlanceModifier.size(RowMetrics.header)
             .clickable(actionStartActivity(TodoEditActivity.addIntent(context)))
             .semantics { contentDescription = "할 일 추가" },
         contentAlignment = Alignment.Center,
     ) {
-        Text("＋", style = TextStyle(fontSize = 22.scaledSp(appearance), fontWeight = FontWeight.Bold, color = appearanceAccent(appearance)))
+        Text("＋", style = TextStyle(fontSize = 20.scaledSp(appearance), fontWeight = FontWeight.Bold, color = appearanceAccent(appearance)))
     }
 }
 
@@ -975,21 +999,24 @@ private fun EventLine(
     val ended = CalendarRules.hasEnded(occurrence, now)
     val inProgress = CalendarRules.isInProgress(occurrence, now)
     Row(
-        modifier = GlanceModifier.fillMaxWidth().height(if (compact) 22.dp else 36.dp)
+        modifier = GlanceModifier.fillMaxWidth().height(RowMetrics.rowHeight(compact))
+            .padding(horizontal = RowMetrics.horizontalPadding)
             .semantics { contentDescription = "${timeLabel(occurrence, zone, today)} ${occurrence.event.title}, ${if (inProgress) "진행 중" else if (ended) "종료" else "예정"}" },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = GlanceModifier.size(8.dp)
-                .background(glanceColor(WidgetColorResolver.eventColor(occurrence.event.color)))
-                .cornerRadius(4.dp),
-        ) {}
-        Spacer(GlanceModifier.width(6.dp))
+        // Leading column: same width as the todo check column, dot centred in it.
+        Box(modifier = GlanceModifier.width(RowMetrics.leading).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = GlanceModifier.size(8.dp)
+                    .background(glanceColor(WidgetColorResolver.eventColor(occurrence.event.color)))
+                    .cornerRadius(4.dp),
+            ) {}
+        }
         Text(
             "${timeLabel(occurrence, zone, today)} ${occurrence.event.title}",
             maxLines = if (compact) 1 else 2,
             modifier = GlanceModifier.defaultWeight(),
-            style = bodyStyle(appearance, if (compact) 9 else 10, bold = inProgress, variant = ended),
+            style = bodyStyle(appearance, RowMetrics.titleSp(compact), bold = inProgress, variant = ended),
         )
     }
 }
