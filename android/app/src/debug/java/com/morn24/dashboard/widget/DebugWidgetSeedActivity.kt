@@ -98,6 +98,15 @@ class DebugWidgetSeedActivity : ComponentActivity() {
                         }
                     }
 
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        listOf("글씨 100%" to 100, "글씨 150%" to 150).forEach { (label, scale) ->
+                            Button(
+                                onClick = { lifecycleScope.launch { message = applyAppearance(appearance("mint-blue-lavender", fontScale = scale)) } },
+                                modifier = Modifier.weight(1f),
+                            ) { Text(label) }
+                        }
+                    }
+
                     Text("같은 어두운 배경 · 강조색 조합")
                     palettes.chunked(2).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {

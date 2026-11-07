@@ -98,3 +98,25 @@ adb -s emulator-5554 shell cmd alarm set-timezone Asia/Seoul
 ## 8. APK
 
 `android/app/build/outputs/apk/debug/Dashboard-parity-debug.apk` (applicationId `com.morn24.dashboard`, 디버그 서명 그대로, versionCode 7 / versionName 1.6). SHA-256은 PR 본문과 최종 보고에 적었다(커밋 뒤 다시 빌드하면 값이 달라질 수 있어 이 문서에는 고정하지 않는다).
+
+## 9. 1.6.1: 할 일·오늘 일정 줄 맞춤 (versionCode 8)
+
+S25 화면에서 할 일 패널과 오늘 일정 패널의 줄 높이·글씨·간격이 달라 보이던 것을 공통 치수(`RowMetrics`)로 맞췄다.
+
+| 항목 | 전 (할 일 / 일정) | 후 (둘 다) |
+|---|---|---|
+| 패널 머리 높이 | 48dp / 32dp | 40dp (`＋`도 40×40dp) |
+| 줄 높이 | 48dp / 36dp | 44dp (2×2·4×2 같은 compact는 40dp) |
+| 제목 글씨 | 11sp / 10sp | 11sp (compact 10sp) |
+| 좌우 여백 | 3dp / 0 | 3dp |
+| 앞 칸 너비 | 체크 44dp / 점 8dp+간격 6dp | 40dp (체크 글자와 색 점을 가운데 정렬, 제목 시작 위치 같음) |
+| 체크 글자 | 16sp | 13sp |
+| 머리와 첫 줄 사이 | 3dp(compact 1dp) / 1dp | 1dp |
+
+배지(`🔥n` / `n일 지남`)는 아래 줄이 아니라 **같은 줄 오른쪽 끝**(9sp, 제목과 4dp 간격)에 둔다. 배지가 있으면 제목은 한 줄 말줄임, 없으면 두 줄까지 쓰며 줄 높이는 그대로다. 체크 칸은 줄 전체 높이(44dp)를 누르는 영역으로 유지하고, 제목 탭은 수정, 일정 줄은 `[점 칸][시간 제목]` 구조다. 4×4 할 일 패널 높이 비율(약 60%)은 그대로다.
+
+확인(에뮬레이터 Pixel_6a, 가짜 서버 익명 데이터): `docs/android-widget-parity-screenshots/emulator-4x4-row-align.png`(🔥3·🔥7 줄과 일정 목록), `emulator-4x4-row-align-scrolled.png`(`2일 지남` 배지와 일정), `emulator-4x4-row-align-large.png`(글씨 150%). 체크 칸·점 칸·제목 시작 위치가 두 패널에서 같고, 긴 제목은 배지를 밀어내지 않고 말줄임으로 줄어든다. 디버그 화면에 "글씨 100%/150%" 버튼을 추가했다(데이터는 건드리지 않고 모양만 바꿈).
+
+명령: `./gradlew.bat test assembleDebug lintDebug --console=plain` 통과(단위 테스트 125개, lint 오류 0). 이번 변경은 화면 치수만 바꿔서 단위 테스트는 추가하지 않았다. 확인하지 못한 것: 2×2·4×2 크기의 새 캡처(compact 치수는 코드로만 적용), 꾸미기 7종·투명도 조합, 실기기.
+
+APK: `android/app/build/outputs/apk/debug/Dashboard-row-align-debug.apk` (versionCode 8 / versionName 1.6.1), SHA-256 `bc53d229f451a20e44e1aa26353058e694f8886097a860612e4f51d4cfac7ef4`.
