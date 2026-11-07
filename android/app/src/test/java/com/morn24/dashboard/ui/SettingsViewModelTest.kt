@@ -224,7 +224,7 @@ class SettingsViewModelTest {
             createCount += 1
             return object : DashboardRepository {
                 override fun read(file: DashboardFile): RemoteRead = readResult()
-                override fun updateTodo(todoId: String, targetDoneOn: String?): MutationResult = error("unused")
+                override fun mutate(file: DashboardFile, message: String, change: (kotlinx.serialization.json.JsonObject) -> com.morn24.dashboard.data.DocChange): MutationResult = error("unused")
             }
         }
     }

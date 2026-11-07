@@ -1,6 +1,6 @@
 # 데이터 형식 (공통 약속)
 
-웹앱, PC 업데이트 스크립트, 안드로이드 위젯이 **모두 같은 파일을 읽고 씁니다.**
+웹앱, PC 업데이트 스크립트, 안드로이드 위젯이 **모두 같은 파일을 읽고 씁니다.** (위젯은 `todos.json`을 쓰고, `projects.json`은 다음 과제 `checked`만 쓰며, `calendar.json`·`pmr-wiki.json`은 읽기만 합니다.)
 이 문서가 세 프로그램 사이의 "약속"이므로, 형식을 바꿀 때는 이 문서부터 고칩니다.
 
 ## 저장 위치
@@ -13,7 +13,7 @@
 
 - `data/calendar.json`: Google 캘린더 **일정** (**Google Apps Script만** 씀. 웹앱과 위젯은 읽기만)
   - `data/push.json`: 폰 알림(Web Push) 구독 정보 (Apps Script가 공개키를, 폰이 구독을 씀)
-  - `data/pmr-wiki.json`: PMR-Wiki 정기 작업·학습 후보 상태 (**PC의 PMR-Wiki `tools/dash_sync.py`만** 씀. 웹앱은 읽기만)
+  - `data/pmr-wiki.json`: PMR-Wiki 정기 작업·학습 후보 상태 (**PC의 PMR-Wiki `tools/dash_sync.py`만** 씀. 웹앱과 안드로이드 위젯은 읽기만)
   - `data/pmr-commands.json`: PMR-Wiki 탭에서 누른 버튼 명령 (폰이 추가, PC가 실행 후 결과 기록)
   - `data/pmr-alerts.json`: PMR-Wiki 알림 기록 (**Apps Script만** 씀. 웹앱 알림 기록 창이 읽음)
 
@@ -76,6 +76,7 @@
   - `weekly`는 `days`에 오늘 요일이 있을 때만 보입니다 (오늘 완료한 것은 계속 보임).
   - `none`에 `date`가 오늘보다 뒤면 오늘 목록에서 숨기고 **"예정 n개"** 에 보여줍니다. "내일로 미루기" = `date`를 내일로 바꾸기.
   - 한 번만 할 일 중 **오늘 이전에 끝낸 것은 숨깁니다.** (웹앱의 "지난 완료 정리" 버튼으로 삭제)
+- 안드로이드 위젯도 웹앱 `web/rules.js`와 같은 규칙으로 표시하고 씁니다. 위젯이 쓰는 모든 변경은 읽은 최신 파일에 그 항목의 필요한 키만 바꾸고(`gtask`·`gsync`·`time` 등 모르는 키는 그대로), 최상위 `updatedAt`을 갱신하며, sha 충돌(409/422)이면 다시 읽고 다시 적용합니다. Kotlin과 JavaScript가 같은 답을 내는지는 `scripts/gen_rule_vectors.js`가 만든 벡터로 검증합니다.
 - 완료/취소할 때 반복 할 일은 `history`에 오늘을 넣거나 뺍니다. 취소하면 `doneOn`은 `history`의 이전 날짜로 돌아갑니다.
 - 연속 기록 = 오늘(아직 안 했으면 어제)부터 거꾸로, **해야 했던 날**(`weekly`면 그 요일만)마다 `history`에 있는지 세다가 처음 빠진 날에서 멈춘 수. 2 이상이면 🔥n 표시.
 - 이 필드들을 모르는 프로그램(예: PC의 `todo-add`)은 다른 항목의 필드를 지우지 말고 그대로 둡니다.
@@ -173,6 +174,7 @@
   - 확인해 보니 미비하면 `next`에 다시 넣고 `--summary`에 이유를 짧게 남긴다.
   - 처리가 끝난 체크는 `checked`에서 지운다 (`set --clear-checked`).
 - 체크를 모두 지우면 `checked` 필드 자체를 없앤다.
+- 안드로이드 위젯(4×4 프로젝트의 `다음 ·` 줄)도 같은 규칙으로 `checked`에 `{text, at}`를 넣고 빼며, 다른 필드·다른 프로젝트는 건드리지 않는다.
 - PC 스크립트는 `set` 할 때 자신이 모르는 필드를 **지우지 않고 보존**해야 한다.
 
 **붙여넣기 갱신 (Gemini 채팅 등)**
@@ -234,6 +236,7 @@ PC에서 명령을 실행할 수 없는 AI(Gemini 웹·앱)는 웹앱의 **＋ �
 PMR-Wiki 보관함의 `tools/dash_sync.py`가 Windows 예약 작업 "PMR-Wiki dash sync"로 **30분마다** 만든다.
 내용이 바뀌었을 때, 또는 바뀌지 않았어도 6시간마다 올린다. 그래서 `generatedAt`이 **7시간** 넘게 지났으면 웹앱은 "PC 꺼짐·동기화 멈춤" 경고를 보여준다.
 파일이 없으면(404) 웹앱은 설정 안내를 보여준다. **웹앱은 읽기만 한다.**
+안드로이드 위젯도 읽기만 한다: `decisions.need`(결정 대기), `jobs[].state == "error"`(실패 작업), `generatedAt`(하루 넘게 없으면 끊김)만 읽어 머리 줄에 `PMR 결정 n` / `PMR 실패 n` / `PMR 끊김` 칩을 보인다. 404나 읽기 실패는 정상(칩 없음)으로 처리하며 위젯의 오류 표시로 바꾸지 않는다. `decisions`는 PR #7(`origin/pmr-decisions`)의 필드다.
 
 ```json
 {

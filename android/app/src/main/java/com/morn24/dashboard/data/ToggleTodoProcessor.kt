@@ -8,6 +8,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 sealed interface ToggleTodoResult {
     data object Saved : ToggleTodoResult
@@ -58,23 +61,53 @@ class ToggleTodoProcessor(
                     return@withLock ToggleTodoResult.StaleConfiguration
                 }
 
-                val mutation = if (pending.requiresExpectedMatch) {
-                    repository.updateTodoIfCurrent(todoId, pending.expectedDoneOn, pending.targetDoneOn)
+                val currentUndo = pending.undoRecordId?.let { store.completedUndo() }
+                val mutation = if (currentUndo != null) {
+                    when (currentUndo.kind) {
+                        UndoKind.COMPLETION -> repository.mutate(
+                            DashboardFile.TODOS,
+                            "widget: 완료 취소(되돌리기) - ${pending.title}",
+                        ) { doc ->
+                            TodoMutations.restoreCompletion(
+                                doc = doc,
+                                todoId = todoId,
+                                today = pending.tappedDate,
+                                expectedDoneOn = currentUndo.completedDoneOn,
+                                originalDoneOn = currentUndo.originalDoneOn,
+                                originalHistory = currentUndo.originalHistory,
+                                historyCaptured = currentUndo.historyCaptured,
+                            )
+                        }
+                        UndoKind.DELETION -> {
+                            val item = Json.parseToJsonElement(currentUndo.deletedItemJson ?: throw MissingTodoException(todoId)) as JsonObject
+                            repository.mutate(DashboardFile.TODOS, "widget: 삭제 취소 - ${pending.title}") { doc ->
+                                TodoMutations.restoreDeleted(doc, item, currentUndo.afterId)
+                            }
+                        }
+                    }
                 } else {
-                    repository.updateTodo(todoId, pending.targetDoneOn)
+                    repository.mutate(
+                        DashboardFile.TODOS,
+                        "widget: ${if (pending.isCompletion) "완료" else "완료 취소"} - ${pending.title}",
+                    ) { doc -> TodoMutations.setCompletion(doc, todoId, pending.tappedDate, pending.isCompletion) }
                 }
-                val rawJson = prettyJson.encodeToString(mutation.document) + "\n"
+                val rawJson = prettyJson.encodeToString(mutation.document) + NEWLINE
                 val atMillis = clock.millis()
-                val undo = if (pending.undoRecordId == null && pending.targetDoneOn != null && mutation.changed) {
+                val before = mutation.before
+                val undo = if (pending.undoRecordId == null && pending.isCompletion && mutation.changed && before != null) {
                     CompletedTodoUndo(
                         recordId = UUID.randomUUID().toString(),
                         todoId = pending.todoId,
                         title = pending.title,
-                        originalDoneOn = mutation.originalDoneOn,
-                        completedDoneOn = pending.targetDoneOn,
+                        originalDoneOn = (before["doneOn"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
+                        completedDoneOn = pending.tappedDate,
                         completedDate = pending.tappedDate,
                         generation = pending.expectedGeneration,
                         completedAtMillis = atMillis,
+                        originalHistory = (before["history"] as? JsonArray)?.mapNotNull {
+                            (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content
+                        },
+                        historyCaptured = true,
                     )
                 } else null
                 val saved = store.completePendingToggle(
@@ -118,6 +151,7 @@ class ToggleTodoProcessor(
     private class MissingSavedTokenException : IllegalStateException()
 
     companion object {
+        private const val NEWLINE = "\n"
         private val prettyJson = Json { prettyPrint = true; prettyPrintIndent = "  " }
     }
 }

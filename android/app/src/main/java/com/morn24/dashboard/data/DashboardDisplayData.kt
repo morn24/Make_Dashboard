@@ -2,6 +2,7 @@ package com.morn24.dashboard.data
 
 import com.morn24.dashboard.domain.CalendarEvent
 import com.morn24.dashboard.domain.Project
+import com.morn24.dashboard.domain.PmrSummary
 import com.morn24.dashboard.domain.ProjectCheck
 import com.morn24.dashboard.domain.Todo
 import kotlinx.serialization.json.JsonArray
@@ -17,16 +18,42 @@ object DashboardDisplayData {
     fun todos(document: JsonObject): List<Todo> {
         requireSupportedVersion(document)
         return document.requiredArray("items").map { element ->
-            val item = element as? JsonObject ?: error("todos.items entry is not an object")
-            val repeat = item.requiredString("repeat")
-            require(repeat == "daily" || repeat == "none") { "Unsupported todo repeat value" }
-            Todo(
-                id = item.requiredString("id"),
-                title = item.requiredString("title"),
-                repeat = repeat,
-                doneOn = item.optionalString("doneOn"),
-            )
+            todo(element as? JsonObject ?: error("todos.items entry is not an object"))
         }
+    }
+
+    /** One todos.json item. Unknown `repeat` values behave like "none", as in web/rules.js. */
+    fun todo(item: JsonObject): Todo {
+        val days = when (val raw = item["days"]) {
+            is JsonArray -> raw.mapNotNull { (it as? JsonPrimitive)?.takeUnless(JsonPrimitive::isString)?.intOrNull }
+            else -> emptyList()
+        }
+        val history = (item["history"] as? JsonArray)?.mapNotNull {
+            (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content
+        }
+        return Todo(
+            id = item.requiredString("id"),
+            title = item.requiredString("title"),
+            repeat = item.requiredString("repeat"),
+            doneOn = item.optionalString("doneOn"),
+            days = days,
+            date = item.lenientString("date"),
+            time = item.lenientString("time"),
+            history = history,
+        )
+    }
+
+    /** `data/pmr-wiki.json`: only what the widget chip needs. Missing fields mean zero. */
+    fun pmr(document: JsonObject): PmrSummary {
+        val need = ((document["decisions"] as? JsonObject)?.get("need") as? JsonPrimitive)?.intOrNull ?: 0
+        val failed = (document["jobs"] as? JsonArray).orEmpty().count { job ->
+            ((job as? JsonObject)?.get("state") as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content == "error"
+        }
+        return PmrSummary(
+            generatedAt = document.lenientString("generatedAt"),
+            decisionsNeed = need.coerceAtLeast(0),
+            failedJobs = failed,
+        )
     }
 
     fun projects(document: JsonObject): List<Project> {
@@ -96,6 +123,10 @@ object DashboardDisplayData {
             ?: error("$key is not a string")
         else -> error("$key is not a string")
     }
+
+    /** A string value, or null when absent / null / not a string (never throws). */
+    private fun JsonObject.lenientString(key: String): String? =
+        (this[key] as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content
 
     private fun JsonObject.optionalStringArray(key: String): List<String> = when (val value = this[key]) {
         null, JsonNull -> emptyList()

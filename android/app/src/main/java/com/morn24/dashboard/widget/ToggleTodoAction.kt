@@ -39,6 +39,7 @@ class ToggleTodoAction : ActionCallback {
             expectedGeneration = generation,
             createdAtMillis = System.currentTimeMillis(),
             title = title,
+            makeDone = target != CLEAR_DONE_TARGET,
         )
         if (!store.enqueuePendingToggle(action)) {
             DashboardWidget().update(context, glanceId)
@@ -90,6 +91,7 @@ class UndoTodoAction : ActionCallback {
             undoRecordId = undo.recordId,
             requiresExpectedMatch = true,
             expectedDoneOn = undo.completedDoneOn,
+            makeDone = false,
         )
         if (!store.enqueuePendingToggle(pending)) {
             runCatching { DashboardWidget().update(context, glanceId) }

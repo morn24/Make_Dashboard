@@ -11,7 +11,9 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.morn24.dashboard.domain.CalendarEvent
 import com.morn24.dashboard.domain.Project
+import com.morn24.dashboard.domain.PmrSummary
 import com.morn24.dashboard.domain.Todo
+import com.morn24.dashboard.domain.TodoRules
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -114,7 +116,7 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
                 if (status.notFoundAtMillis != null) return emptyValue(file)
                 val raw = preferences[cacheRawKey(file)] ?: return emptyValue(file)
                 return runCatching { decoder(Json.parseToJsonElement(raw) as JsonObject) }.getOrElse {
-                    parseErrors += "저장된 ${file.path} 데이터를 읽지 못했어요."
+                    if (file.core) parseErrors += "저장된 ${file.path} 데이터를 읽지 못했어요."
                     emptyValue(file)
                 }
             }
@@ -130,15 +132,19 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
                 .mapNotNull { raw -> runCatching { pendingJson.decodeFromString<PendingTodoToggle>(raw) }.getOrNull() }
                 .filter { it.expectedGeneration == generation }
                 .associateBy(PendingTodoToggle::todoId)
-            val overlaidTodos = todos.map { todo -> pending[todo.id]?.let { todo.copy(doneOn = it.targetDoneOn) } ?: todo }
+            val pmr = parse<PmrSummary?>(DashboardFile.PMR) { DashboardDisplayData.pmr(it) }
+            val overlaidTodos = todos.map { todo ->
+                pending[todo.id]?.let { TodoRules.applyCompletion(todo, it.tappedDate, it.isCompletion) } ?: todo
+            }
             val appearance = preferences[widgetAppearanceKey(widgetId)]?.let(::decodeAppearance)
                 ?: preferences[DEFAULT_APPEARANCE_KEY]?.let(::decodeAppearance)
                 ?: WidgetAppearance.DEFAULT
             val undo = preferences[UNDO_KEY]?.let { raw -> runCatching { pendingJson.decodeFromString<CompletedTodoUndo>(raw) }.getOrNull() }
                 ?.takeIf { it.generation == generation }
-            val timestamps = statuses.mapNotNull(FileSyncStatus::lastSuccessAtMillis)
-            val fileErrors = statuses.mapNotNull(FileSyncStatus::error)
-            val missingRequiredFiles = statuses.filter {
+            val coreStatuses = statuses.filter { it.file.core }
+            val timestamps = coreStatuses.mapNotNull(FileSyncStatus::lastSuccessAtMillis)
+            val fileErrors = coreStatuses.mapNotNull(FileSyncStatus::error)
+            val missingRequiredFiles = coreStatuses.filter {
                 it.notFoundAtMillis != null && it.file != DashboardFile.CALENDAR
             }.map { "${it.file.path} 파일을 찾지 못했어요." }
             DashboardSnapshot(
@@ -154,7 +160,8 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
                 lastCompleteSyncAtMillis = preferences[LAST_COMPLETE_SYNC_KEY],
                 lastSyncHadErrors = preferences[LAST_SYNC_ERROR_KEY] ?: false,
                 syncInProgress = preferences[SYNC_IN_PROGRESS_KEY] ?: false,
-                fileStatuses = statuses,
+                fileStatuses = coreStatuses,
+                pmr = pmr,
                 undo = undo,
                 pendingUndoTodoId = pending.values.firstOrNull { it.undoRecordId != null }?.todoId,
                 appearance = appearance,
@@ -236,10 +243,12 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
         previousSha: String,
         atMillis: Long,
         expectedGeneration: Long,
+        undo: CompletedTodoUndo? = null,
     ): Boolean {
         var saved = false
         dataStore.edit { preferences ->
             if ((preferences[SettingsKeys.generation] ?: 0L) != expectedGeneration) return@edit
+            if (undo != null) preferences[UNDO_KEY] = pendingJson.encodeToString(undo)
             preferences[cacheRawKey(DashboardFile.TODOS)] = rawJson
             preferences[cacheShaKey(DashboardFile.TODOS)] = newSha
             preferences[cacheSuccessKey(DashboardFile.TODOS)] = atMillis
@@ -252,6 +261,27 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
             } else {
                 clearTodoStaleShaGuard(preferences)
             }
+            saved = true
+        }
+        return saved
+    }
+
+    /** Saves the result of a projects.json write (next-task check) as the current cache. */
+    suspend fun saveProjectsMutationIfGeneration(
+        rawJson: String,
+        newSha: String,
+        atMillis: Long,
+        expectedGeneration: Long,
+    ): Boolean {
+        var saved = false
+        dataStore.edit { preferences ->
+            if ((preferences[SettingsKeys.generation] ?: 0L) != expectedGeneration) return@edit
+            preferences[cacheRawKey(DashboardFile.PROJECTS)] = rawJson
+            preferences[cacheShaKey(DashboardFile.PROJECTS)] = newSha
+            preferences[cacheSuccessKey(DashboardFile.PROJECTS)] = atMillis
+            preferences[cacheAttemptKey(DashboardFile.PROJECTS)] = atMillis
+            preferences.remove(cacheErrorKey(DashboardFile.PROJECTS))
+            preferences.remove(cacheNotFoundKey(DashboardFile.PROJECTS))
             saved = true
         }
         return saved
@@ -428,6 +458,7 @@ class DashboardStore(private val dataStore: DataStore<Preferences>) {
     @Suppress("UNCHECKED_CAST")
     private fun <T> emptyValue(file: DashboardFile): T = when (file) {
         DashboardFile.TODOS, DashboardFile.CALENDAR, DashboardFile.PROJECTS -> emptyList<Any>() as T
+        DashboardFile.PMR -> null as T
     }
 
     private fun decodeAppearance(raw: String): WidgetAppearance = runCatching {

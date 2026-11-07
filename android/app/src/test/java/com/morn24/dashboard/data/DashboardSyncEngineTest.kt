@@ -191,6 +191,68 @@ class DashboardSyncEngineTest {
         assertEquals(updatedJson, store.cached(DashboardFile.TODOS).rawJson)
     }
 
+    @Test
+    fun pmrWikiSummaryIsReadWithoutTouchingTheOtherFiles() = runBlocking {
+        val factory = repositoryFactory(
+            DashboardFile.TODOS to found("""{"version":1,"items":[]}""", "t"),
+            DashboardFile.PROJECTS to found("""{"version":1,"projects":[]}""", "p"),
+            DashboardFile.CALENDAR to { RemoteRead.NotFound },
+            DashboardFile.PMR to found("""{"version":1,"generatedAt":"2026-11-07T08:00:00+09:00","jobs":[{"id":"a","state":"error"}],"decisions":{"need":3}}""", "pmr-sha"),
+        )
+        connectStore()
+
+        val snapshot = engine(factory).load()
+
+        assertEquals(3, snapshot.pmr!!.decisionsNeed)
+        assertEquals(1, snapshot.pmr!!.failedJobs)
+        assertTrue(snapshot.errors.isEmpty())
+        assertEquals(DashboardFile.coreFiles, snapshot.fileStatuses.map { it.file })
+    }
+
+    @Test
+    fun aMissingPmrFileIsNormalAndNeverAnError() = runBlocking {
+        val factory = repositoryFactory(
+            DashboardFile.TODOS to found("""{"version":1,"items":[]}""", "t"),
+            DashboardFile.PROJECTS to found("""{"version":1,"projects":[]}""", "p"),
+            DashboardFile.CALENDAR to { RemoteRead.NotFound },
+            DashboardFile.PMR to { RemoteRead.NotFound },
+        )
+        connectStore()
+
+        val snapshot = engine(factory).load()
+
+        assertNull(snapshot.pmr)
+        assertTrue(snapshot.errors.isEmpty())
+        assertFalse(store.lastSyncHadErrors())
+        assertTrue(engine(factory).loadCached().errors.isEmpty())
+    }
+
+    @Test
+    fun aBrokenOrFailingPmrFileNeverTurnsTheWidgetIntoAFailureState() = runBlocking {
+        val failing = repositoryFactory(
+            DashboardFile.TODOS to found("""{"version":1,"items":[]}""", "t"),
+            DashboardFile.PROJECTS to found("""{"version":1,"projects":[]}""", "p"),
+            DashboardFile.CALENDAR to { RemoteRead.NotFound },
+            DashboardFile.PMR to { throw java.io.IOException("offline") },
+        )
+        connectStore()
+        val snapshot = engine(failing).load()
+        assertNull(snapshot.pmr)
+        assertTrue(snapshot.errors.isEmpty())
+        assertFalse(store.lastSyncHadErrors())
+        assertTrue(snapshot.fileStatuses.none { it.error != null })
+
+        val wrongShape = repositoryFactory(
+            DashboardFile.TODOS to found("""{"version":1,"items":[]}""", "t"),
+            DashboardFile.PROJECTS to found("""{"version":1,"projects":[]}""", "p"),
+            DashboardFile.CALENDAR to { RemoteRead.NotFound },
+            DashboardFile.PMR to found("""{"jobs":"nonsense","decisions":7}""", "pmr-sha"),
+        )
+        val parsed = engine(wrongShape).load()
+        assertTrue(parsed.errors.isEmpty())
+        assertEquals(0, parsed.pmr!!.decisionsNeed)
+    }
+
     private suspend fun connectStore() {
         store.saveSettings(DashboardSettings(encryptedToken = cipher.encrypt("test-only-token")))
     }
@@ -216,7 +278,7 @@ class DashboardSyncEngineTest {
         return DashboardRepositoryFactory { _, _, _, _ ->
             object : DashboardRepository {
                 override fun read(file: DashboardFile): RemoteRead = readers[file]?.invoke() ?: RemoteRead.NotFound
-                override fun updateTodo(todoId: String, targetDoneOn: String?): MutationResult = error("unused")
+                override fun mutate(file: DashboardFile, message: String, change: (kotlinx.serialization.json.JsonObject) -> com.morn24.dashboard.data.DocChange): MutationResult = error("unused")
             }
         }
     }

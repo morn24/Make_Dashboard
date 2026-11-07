@@ -1,7 +1,9 @@
 package com.morn24.dashboard.data
 
 import com.morn24.dashboard.domain.CalendarEvent
+import com.morn24.dashboard.domain.PmrSummary
 import com.morn24.dashboard.domain.Project
+import com.morn24.dashboard.domain.TodoRules
 import com.morn24.dashboard.domain.Todo
 import java.io.IOException
 import java.time.Clock
@@ -28,6 +30,7 @@ data class DashboardSnapshot(
     val todos: List<Todo> = emptyList(),
     val pendingTodoIds: Set<String> = emptySet(),
     val projects: List<Project> = emptyList(),
+    val pmr: PmrSummary? = null,
     val calendarEvents: List<CalendarEvent> = emptyList(),
     val calendarAvailable: Boolean = false,
     val lastUpdatedAtMillis: Long? = null,
@@ -110,20 +113,24 @@ class DashboardSyncEngine(
             errors = errors,
         )
 
+        // Optional PMR-Wiki summary: a missing or broken file never becomes an error for the widget.
+        val pmr = loadOptionalPmr(repository, generation)
+
         if (store.generation() != generation) {
             return@withContext cachedSnapshot(store.settings(), store.generation(), listOf("설정이 바뀌었어요. 새로고침해 주세요."))
         }
         store.recordSyncResultIfGeneration(clock.millis(), errors.isNotEmpty(), generation)
         syncFinished = true
-        val timestamps = DashboardFile.entries.mapNotNull { store.cached(it).lastSuccessAtMillis }
+        val timestamps = DashboardFile.coreFiles.mapNotNull { store.cached(it).lastSuccessAtMillis }
         val (displayTodos, pendingTodoIds) = overlayPendingTodos(todos.value, generation)
-        val fileStatuses = DashboardFile.entries.map { file -> store.cached(file).toStatus(file) }
+        val fileStatuses = DashboardFile.coreFiles.map { file -> store.cached(file).toStatus(file) }
         DashboardSnapshot(
             connectionState = WidgetConnectionState.READY,
             webUrl = settings.webUrl,
             todos = displayTodos,
             pendingTodoIds = pendingTodoIds,
             projects = projects.value,
+            pmr = pmr,
             calendarEvents = calendar.value,
             calendarAvailable = calendar.available,
             lastUpdatedAtMillis = timestamps.maxOrNull(),
@@ -186,6 +193,30 @@ class DashboardSyncEngine(
         }
     }
 
+    /** Reads data/pmr-wiki.json; 404 is normal (not a PMR user) and every failure only hides the chip. */
+    private suspend fun loadOptionalPmr(repository: DashboardRepository, generation: Long): PmrSummary? {
+        try {
+            return when (val result = repository.read(DashboardFile.PMR)) {
+                is RemoteRead.Found -> {
+                    val summary = DashboardDisplayData.pmr(result.document)
+                    store.saveSuccessfulFileIfGeneration(DashboardFile.PMR, result.rawJson, result.sha, clock.millis(), generation)
+                    summary
+                }
+                RemoteRead.NotFound -> {
+                    store.recordFileNotFoundIfGeneration(DashboardFile.PMR, clock.millis(), generation)
+                    null
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Keep the last good cache but never surface this as a widget sync error.
+            return store.cached(DashboardFile.PMR).takeIf { it.notFoundAtMillis == null }?.rawJson?.let { raw ->
+                runCatching { DashboardDisplayData.pmr(Json.parseToJsonElement(raw) as JsonObject) }.getOrNull()
+            }
+        }
+    }
+
     private suspend fun cachedSnapshot(
         settings: DashboardSettings,
         generation: Long,
@@ -211,17 +242,21 @@ class DashboardSyncEngine(
         val todoCache = cached(DashboardFile.TODOS, emptyList<Todo>(), DashboardDisplayData::todos)
         val projectCache = cached(DashboardFile.PROJECTS, emptyList<Project>(), DashboardDisplayData::projects)
         val calendarCache = cached(DashboardFile.CALENDAR, emptyList<CalendarEvent>(), DashboardDisplayData::events)
+        val pmrCache = store.cached(DashboardFile.PMR).takeIf { it.notFoundAtMillis == null }?.rawJson?.let { raw ->
+            runCatching { DashboardDisplayData.pmr(Json.parseToJsonElement(raw) as JsonObject) }.getOrNull()
+        }
         if (store.cached(DashboardFile.TODOS).notFoundAtMillis != null) errors += "${DashboardFile.TODOS.path} 파일을 찾지 못했어요."
         if (store.cached(DashboardFile.PROJECTS).notFoundAtMillis != null) errors += "${DashboardFile.PROJECTS.path} 파일을 찾지 못했어요."
-        val timestamps = DashboardFile.entries.mapNotNull { store.cached(it).lastSuccessAtMillis }
+        val timestamps = DashboardFile.coreFiles.mapNotNull { store.cached(it).lastSuccessAtMillis }
         val (displayTodos, pendingTodoIds) = overlayPendingTodos(todoCache.first, generation)
-        val fileStatuses = DashboardFile.entries.map { file -> store.cached(file).toStatus(file) }
+        val fileStatuses = DashboardFile.coreFiles.map { file -> store.cached(file).toStatus(file) }
         return DashboardSnapshot(
             connectionState = WidgetConnectionState.READY,
             webUrl = settings.webUrl,
             todos = displayTodos,
             pendingTodoIds = pendingTodoIds,
             projects = projectCache.first,
+            pmr = pmrCache,
             calendarEvents = calendarCache.first,
             calendarAvailable = calendarCache.second,
             lastUpdatedAtMillis = timestamps.maxOrNull(),
@@ -238,7 +273,7 @@ class DashboardSyncEngine(
         val pending = store.pendingToggles().filter { it.expectedGeneration == generation }.associateBy(PendingTodoToggle::todoId)
         if (pending.isEmpty()) return todos to emptySet()
         return todos.map { todo ->
-            pending[todo.id]?.let { todo.copy(doneOn = it.targetDoneOn) } ?: todo
+            pending[todo.id]?.let { TodoRules.applyCompletion(todo, it.tappedDate, it.isCompletion) } ?: todo
         } to pending.keys
     }
 
