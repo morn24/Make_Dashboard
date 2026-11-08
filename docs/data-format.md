@@ -252,6 +252,7 @@ PMR-Wiki 보관함의 `tools/dash_sync.py`가 Windows 예약 작업 "PMR-Wiki da
     "nextAuto": "L18", "busy": false, "cooldownDays": 30, "topicsGenerated": "2026-11-06T07:42:23",
     "topics": [
       { "id": "L3", "status": "후보", "rank": 1, "topic": "주제", "trigger": "...", "why": "...", "detail": "...",
+        "remaining": "prognostic block 예측 가치의 무작위 근거(McCormick 원문, 볼트에 없음)",
         "cooldownUntil": "2026-12-01",
         "request": { "status": "done", "source": "auto", "requestedAt": "...", "updatedAt": "...", "note": "..." } },
       { "id": "L11", "status": "보류", "topic": "주제", "held": "2026-11-02" }
@@ -276,7 +277,9 @@ PMR-Wiki 보관함의 `tools/dash_sync.py`가 Windows 예약 작업 "PMR-Wiki da
 | `wiki` | `dashboard.md` "한눈에 보기" 표와 ⚠ 경고 줄 |
 | `learning.topics` | `learning.md`의 학습중 → 후보 → 보류 순. `rank`는 표 순서 = 우선순위 |
 | `learning.nextAuto` | 다음 야간 자동 학습이 고를 후보 (최근 `cooldownDays`일 안에 요청한 후보는 건너뜀, `cooldownUntil`까지 쉼) |
-| `topics[].request` | uptodate 학습 AI 요청(`study/ai_requests.json`)의 그 후보 최신 상태: `pending`·`running`·`done`·`failed` |
+| `topics[].remaining` | 행 본문의 마지막 `남은 것` 뒤 글(다음 날짜 표기 전까지, 위키 링크는 이름만, 160자). `dtv_bridge.py topics`가 뽑고 `dash_sync.py`가 싣는다. 없으면 필드를 넣지 않는다(이전 형식 데이터도 그대로 그려진다). 앱은 후보 제목 아래에 `남은 것: …`으로 두 줄까지 보인다 |
+| `topics[].cooldownUntil` | 야간 자동 학습이 이 후보를 한 번 다룬 뒤 30일간 다시 고르지 않는 날짜. 앱은 `MM-DD부터 자동 재시도` 칩을 달고, 다음 자동 후보가 아니면 접힌 묶음 `AI가 한 번 본 후보 n개 (자동 재시도 대기)`로 옮긴다. `rank`는 표 순서 그대로 |
+| `topics[].request` | uptodate 학습 AI 요청(`study/ai_requests.json`)의 그 후보 최신 상태: `pending`·`running`·`done`·`failed`. `done`은 그날 한 번 다뤘다는 뜻이지 공백이 다 채워졌다는 뜻이 아니다(칩: `AI 1차 MM-DD`, 30일 대기 중이면 `· 공백 남음` 덧붙임) |
 | `recent` | `log.md` 최근 10건 (최신이 먼저) |
 | `decisions.items[].state` | `need` 사람이 정할 것(버튼 표시: 자동 교차검증 불일치·덧붙이기 아닌 패치, 결정 묶음·상충), `auto` 예약 실행이 처리할 것(검증 대기·적용 대기·보류 정리), `info` 참고 자료(체크리스트·lint 보고) |
 | `reviewDue` | `review_due`가 `windowDays`일 안인 확정(reviewed·applied) 노트. `daysLeft`가 음수면 지남 |

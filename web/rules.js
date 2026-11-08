@@ -177,3 +177,12 @@ function parseTodoInput(text, now = new Date()) {
   if (time && !date) date = today;
   return { title, date, time };
 }
+
+// PMR 학습 후보 나누기: 30일 자동 재시도 대기(cooldownUntil)인 후보는 아래 묶음(waiting)으로, 나머지는 위쪽(upper)으로.
+// 보류는 따로(held). rank는 learning.md 표 순서 그대로 두고 다시 매기지 않는다. 다음 자동 후보는 항상 위쪽.
+function splitLearning(topics, nextAuto) {
+  const list = Array.isArray(topics) ? topics : [];
+  const live = list.filter((t) => t.status !== '보류');
+  const isWaiting = (t) => !!t.cooldownUntil && t.id !== nextAuto;
+  return { upper: live.filter((t) => !isWaiting(t)), waiting: live.filter(isWaiting), held: list.filter((t) => t.status === '보류') };
+}
