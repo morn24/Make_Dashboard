@@ -199,9 +199,14 @@ private fun WidgetContent(
     val upcomingCount = TodoRules.upcoming(snapshot.todos, todayText).size
     val pmrChip = PmrRules.chip(snapshot.pmr, now)
     val pmrAction = actionStartActivity(Intent(Intent.ACTION_VIEW, PmrRules.pmrUrl(snapshot.webUrl).toUri()))
-    // 4x4: the todo list is the main job, so it gets ~60% of the left column (schedule keeps the rest).
-    val chromeDp = 48 + 30 + 48 + 16 + (if (undo != null) 48 else 0) + (if (hasCompactStatus(snapshot)) 18 else 0)
-    val todoPanelHeight = (((LocalSize.current.height.value - chromeDp - 6) * 0.6f).coerceAtLeast(112f)).dp
+    // 4x4: the todo panel is as tall as its content (title line + 4dp + max(3, count) rows + padding),
+    // at least 3 rows and at most 60% of the left column; the schedule panel takes the rest.
+    val chromeDp = 20 + 48 + 30 + 36 + (if (undo != null) 48 else 0) + (if (hasCompactStatus(snapshot)) 18 else 0)
+    val leftColumnDp = (LocalSize.current.height.value - chromeDp).coerceAtLeast(0f)
+    val panelChromeDp = 24f + 4f + 16f + 2f
+    val threeRowsDp = panelChromeDp + 3 * 28f
+    val contentDp = panelChromeDp + maxOf(3, actionableTodos.size) * 28f
+    val todoPanelHeight = maxOf(threeRowsDp, minOf(contentDp, leftColumnDp * 0.6f)).dp
     val rootModifier = GlanceModifier.fillMaxSize()
         .background(glanceColor(backgroundArgb(appearance)))
 
@@ -315,14 +320,14 @@ private fun WidgetContent(
             }
         }
 
-        else -> Column(modifier = rootModifier.padding(8.dp)) {
-            Header(snapshot, today, small = false, appearance = appearance, widgetId = widgetId, pmrChip = pmrChip, pmrAction = pmrAction)
+        else -> Column(modifier = rootModifier.padding(RowMetrics.outerPadding)) {
+            Header(snapshot, today, small = false, appearance = appearance, widgetId = widgetId, pmrChip = pmrChip, pmrAction = pmrAction, large = true)
             if (snapshot.connectionState != WidgetConnectionState.READY) {
                 ConnectionRequired(snapshot, appearance)
             } else {
-                if (hasCompactStatus(snapshot)) SyncStatus(snapshot, appearance, compact = true)
-                Summary(snapshot, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, appearance)
-                if (undo != null) UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance, undo.kind == UndoKind.DELETION)
+                if (hasCompactStatus(snapshot)) Box(GlanceModifier.fillMaxWidth().padding(start = RowMetrics.outsideTextInset)) { SyncStatus(snapshot, appearance, compact = true) }
+                Summary(snapshot, todoSummary.doneCount, todoSummary.visibleCount, activeProjects.size, appearance, RowMetrics.outsideTextInset)
+                if (undo != null) Box(GlanceModifier.fillMaxWidth().padding(start = RowMetrics.outsideTextInset)) { UndoRow(undo.title, pendingUndo == undo.todoId, undo.recordId, appearance, undo.kind == UndoKind.DELETION) }
                 Row(modifier = GlanceModifier.fillMaxWidth().defaultWeight(), verticalAlignment = Alignment.Top) {
                     Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight()) {
                         TodoPanel(
@@ -334,7 +339,7 @@ private fun WidgetContent(
                             upcoming = upcomingCount,
                             modifier = GlanceModifier.fillMaxWidth().height(todoPanelHeight),
                         )
-                        Spacer(GlanceModifier.height(6.dp))
+                        Spacer(GlanceModifier.height(RowMetrics.panelGap))
                         SchedulePanel(
                             events = allTodayEvents,
                             total = allTodayEvents.size,
@@ -347,7 +352,7 @@ private fun WidgetContent(
                             modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
                         )
                     }
-                    Spacer(GlanceModifier.width(8.dp))
+                    Spacer(GlanceModifier.width(RowMetrics.panelGap))
                     ProjectPanel(
                         projects = activeProjects,
                         total = activeProjects.size,
@@ -355,7 +360,7 @@ private fun WidgetContent(
                         modifier = GlanceModifier.defaultWeight().fillMaxHeight(),
                     )
                 }
-                MoreAction("전체 보기", webAction, appearance)
+                MoreAction("전체 보기", webAction, appearance, modifier = GlanceModifier.fillMaxWidth().padding(start = RowMetrics.outsideTextInset), height = 36.dp)
             }
         }
     }
@@ -438,13 +443,13 @@ private fun TodoPanel(
         modifier = sectionPanelModifier(modifier, SectionTone.TODO, appearance, "오늘 할 일 목록, ${total}개"),
     ) {
         PanelRule(SectionTone.TODO, appearance)
-        Spacer(GlanceModifier.height(1.dp))
         Row(modifier = GlanceModifier.fillMaxWidth().height(RowMetrics.header), verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("할 일 ${total}개", appearance, SectionTone.TODO)
             Spacer(GlanceModifier.defaultWeight())
             UpcomingLabel(upcoming, appearance)
             AddTodoButton(appearance)
         }
+        Spacer(GlanceModifier.height(RowMetrics.titleToItems))
         if (todos.isEmpty()) {
             Text(
                 "오늘 할 일이 없어요",
@@ -482,7 +487,6 @@ private fun SchedulePanel(
         modifier = sectionPanelModifier(modifier, SectionTone.SCHEDULE, appearance, "오늘 일정 목록, ${total}개"),
     ) {
         PanelRule(SectionTone.SCHEDULE, appearance)
-        Spacer(GlanceModifier.height(1.dp))
         Row(
             modifier = GlanceModifier.fillMaxWidth().height(RowMetrics.header)
                 .clickable(actionRunCallback<OpenCalendarAction>())
@@ -493,6 +497,7 @@ private fun SchedulePanel(
             Spacer(GlanceModifier.defaultWeight())
             Text("캘린더 ›", maxLines = 1, style = bodyStyle(appearance, 9, variant = true))
         }
+        Spacer(GlanceModifier.height(RowMetrics.titleToItems))
         when {
             !available -> Text(
                 "캘린더 연결 안 됨",
@@ -531,8 +536,10 @@ private fun ProjectPanel(
         modifier = sectionPanelModifier(modifier, SectionTone.PROJECT, appearance, "진행 중 프로젝트 목록, ${total}개"),
     ) {
         PanelRule(SectionTone.PROJECT, appearance)
-        Spacer(GlanceModifier.height(if (compact) 1.dp else 3.dp))
-        SectionLabel("프로젝트 ${total}개", appearance, SectionTone.PROJECT)
+        Row(modifier = GlanceModifier.fillMaxWidth().height(RowMetrics.header), verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("프로젝트 ${total}개", appearance, SectionTone.PROJECT)
+        }
+        Spacer(GlanceModifier.height(RowMetrics.titleToItems))
         if (projects.isEmpty()) {
             Text("진행 중 프로젝트 없음", modifier = GlanceModifier.fillMaxWidth().defaultWeight(), maxLines = 2, style = bodyStyle(appearance, 9))
         } else {
@@ -565,6 +572,7 @@ private fun SmallTodoPreview(
             UpcomingLabel(upcoming, appearance)
             AddTodoButton(appearance)
         }
+        Spacer(GlanceModifier.height(RowMetrics.titleToItems))
         val first = todos.firstOrNull()
         if (first == null) {
             Text("오늘 할 일이 없어요", maxLines = 2, style = bodyStyle(appearance, 10))
@@ -575,19 +583,27 @@ private fun SmallTodoPreview(
 }
 
 /**
- * Shared list metrics: the todo panel and the schedule panel use the same header height, row
- * height, title size, horizontal padding and leading-column width, so the check glyph and the
- * event colour dot are centred in identical columns and titles start at the same x.
+ * Shared list metrics for the todo, schedule and project panels: one title-line height, one row
+ * height, one leading column (check glyph and event colour dot start on the same x as the panel
+ * title text), one title size. Panel text sits 10dp (panel padding) + 10dp (inner padding) from the
+ * widget edge in the large layout; text outside the panels uses the same 20dp line.
  */
 private object RowMetrics {
-    val header = 40.dp
-    val row = 44.dp
-    val rowCompact = 40.dp
-    val leading = 40.dp
-    val horizontalPadding = 3.dp
+    val header = 24.dp
+    val row = 28.dp
+    val rowCompact = 28.dp
+    val leading = 18.dp
+    val leadingGap = 6.dp
+    val horizontalPadding = 0.dp
+    val titleToItems = 4.dp
+    val panelGap = 8.dp
+    val outerPadding = 10.dp
+    val panelPaddingH = 10.dp
+    val panelPaddingV = 8.dp
+    val outsideTextInset = 10.dp // outer padding 10 + 10 = the 20dp text line
     const val TITLE_SP = 11
-    const val TITLE_SP_COMPACT = 10
-    const val GLYPH_SP = 13
+    const val TITLE_SP_COMPACT = 11
+    const val GLYPH_SP = 12
     const val BADGE_SP = 9
 
     fun rowHeight(compact: Boolean) = if (compact) rowCompact else row
@@ -612,7 +628,7 @@ private fun sectionPanelModifier(
     return modifier.background(glanceColor(WidgetColorResolver.withAlpha(surface, alpha)))
         .cornerRadius(9.dp)
         .semantics { contentDescription = description }
-        .padding(8.dp)
+        .padding(horizontal = RowMetrics.panelPaddingH, vertical = RowMetrics.panelPaddingV)
 }
 
 @androidx.glance.GlanceComposable
@@ -639,9 +655,10 @@ private fun Header(
     widgetId: Int,
     pmrChip: PmrChip?,
     pmrAction: androidx.glance.action.Action,
+    large: Boolean = false,
 ) {
     Row(modifier = GlanceModifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = GlanceModifier.defaultWeight()) {
+        Column(modifier = GlanceModifier.defaultWeight().padding(start = if (large) RowMetrics.outsideTextInset else 0.dp)) {
             Text(
                 today.format(DateTimeFormatter.ofPattern("M월 d일 (E)", Locale.KOREAN)),
                 maxLines = 1,
@@ -664,10 +681,11 @@ private fun Header(
         }
         if (!small && snapshot.connectionState == WidgetConnectionState.READY) {
             Box(
-                modifier = GlanceModifier.size(48.dp)
+                modifier = GlanceModifier.width(48.dp).height(48.dp)
                     .clickable(actionRunCallback<OpenWidgetSettingsAction>())
+                    .padding(end = if (large) RowMetrics.outsideTextInset else 0.dp)
                     .semantics { contentDescription = "이 위젯 꾸미기 설정 열기" },
-                contentAlignment = Alignment.Center,
+                contentAlignment = if (large) Alignment.CenterEnd else Alignment.Center,
             ) {
                 Text("⚙", style = TextStyle(fontSize = 18.scaledSp(appearance), color = primaryTextColor(appearance)))
             }
@@ -711,10 +729,18 @@ private fun hasCompactStatus(snapshot: DashboardSnapshot): Boolean =
 
 @androidx.glance.GlanceComposable
 @androidx.compose.runtime.Composable
-private fun Summary(snapshot: DashboardSnapshot, done: Int, total: Int, activeProjects: Int, appearance: WidgetAppearance) {
+private fun Summary(
+    snapshot: DashboardSnapshot,
+    done: Int,
+    total: Int,
+    activeProjects: Int,
+    appearance: WidgetAppearance,
+    textInset: androidx.compose.ui.unit.Dp = 0.dp,
+) {
     Column(modifier = GlanceModifier.fillMaxWidth()) {
         Text(
             "할 일 $done/$total · 진행 중 프로젝트 ${activeProjects}개",
+            modifier = GlanceModifier.padding(start = textInset),
             maxLines = 2,
             style = bodyStyle(appearance, 12, bold = true),
         )
@@ -844,9 +870,9 @@ private fun TodoToggleRow(
             .padding(horizontal = RowMetrics.horizontalPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Leading column (same width as the event colour-dot column): toggles the todo.
+        // Leading column + gap (same width as the event colour-dot column): toggles the todo.
         Box(
-            modifier = GlanceModifier.width(RowMetrics.leading).fillMaxHeight()
+            modifier = GlanceModifier.width(RowMetrics.leading + RowMetrics.leadingGap).fillMaxHeight()
                 .thenIf(!isPending) { clickable(action) }
                 .semantics {
                     contentDescription = when {
@@ -855,7 +881,7 @@ private fun TodoToggleRow(
                         else -> "${todo.title}, 미완료, 누르면 완료로 표시"
                     }
                 },
-            contentAlignment = Alignment.Center,
+            contentAlignment = Alignment.CenterStart,
         ) {
             Text(
                 when {
@@ -879,7 +905,7 @@ private fun TodoToggleRow(
             Text(
                 todo.title,
                 modifier = GlanceModifier.defaultWeight(),
-                maxLines = if (hasBadge) 1 else 2,
+                maxLines = 1,
                 style = bodyStyle(appearance, titleSp, variant = isPending),
             )
             if (hasBadge) {
@@ -899,12 +925,12 @@ private fun TodoToggleRow(
 private fun AddTodoButton(appearance: WidgetAppearance) {
     val context = LocalContext.current
     Box(
-        modifier = GlanceModifier.size(RowMetrics.header)
+        modifier = GlanceModifier.width(40.dp).height(RowMetrics.header)
             .clickable(actionStartActivity(TodoEditActivity.addIntent(context)))
             .semantics { contentDescription = "할 일 추가" },
-        contentAlignment = Alignment.Center,
+        contentAlignment = Alignment.CenterEnd,
     ) {
-        Text("＋", style = TextStyle(fontSize = 20.scaledSp(appearance), fontWeight = FontWeight.Bold, color = appearanceAccent(appearance)))
+        Text("＋", style = TextStyle(fontSize = 16.scaledSp(appearance), fontWeight = FontWeight.Bold, color = appearanceAccent(appearance)))
     }
 }
 
@@ -976,9 +1002,10 @@ private fun MoreAction(
     action: androidx.glance.action.Action,
     appearance: WidgetAppearance,
     modifier: GlanceModifier = GlanceModifier.fillMaxWidth(),
+    height: androidx.compose.ui.unit.Dp = 48.dp,
 ) {
     Box(
-        modifier = modifier.height(48.dp).clickable(action)
+        modifier = modifier.height(height).clickable(action)
             .semantics { contentDescription = text },
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -1005,7 +1032,7 @@ private fun EventLine(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Leading column: same width as the todo check column, dot centred in it.
-        Box(modifier = GlanceModifier.width(RowMetrics.leading).fillMaxHeight(), contentAlignment = Alignment.Center) {
+        Box(modifier = GlanceModifier.width(RowMetrics.leading + RowMetrics.leadingGap).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
             Box(
                 modifier = GlanceModifier.size(8.dp)
                     .background(glanceColor(WidgetColorResolver.eventColor(occurrence.event.color)))
@@ -1014,7 +1041,7 @@ private fun EventLine(
         }
         Text(
             "${timeLabel(occurrence, zone, today)} ${occurrence.event.title}",
-            maxLines = if (compact) 1 else 2,
+            maxLines = 1,
             modifier = GlanceModifier.defaultWeight(),
             style = bodyStyle(appearance, RowMetrics.titleSp(compact), bold = inProgress, variant = ended),
         )

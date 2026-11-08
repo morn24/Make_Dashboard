@@ -13,6 +13,8 @@
 
 ### 빌드된 APK 설치
 
+**Google Drive로 받기 (권장, 선 없이)**: PC에서 `assembleDebug` 후 저장소 루트에서 `powershell -ExecutionPolicy Bypass -File scripts/publish_apk_drive.ps1`을 실행하면 APK가 `G:\내 드라이브\Dashboard-APK\`에 `Dashboard-<버전>.apk`와 `Dashboard-latest.apk`로 복사되고, 버전·SHA-256이 `Dashboard-latest.txt`에 적힙니다. 다른 폴더를 쓰려면 `-DriveDir` 인자나 `DASHBOARD_APK_DRIVE_DIR` 환경 변수를 줍니다. 폰의 Drive 앱에서 `Dashboard-APK/Dashboard-latest.apk`를 열어 **업데이트**를 누르면 덮어 설치됩니다. 처음 한 번은 Drive(또는 내 파일) 앱에 '이 출처 허용'을 켜야 합니다. PC에서 빌드한 파일을 그대로 옮기므로 서명이 같아 설정·위젯 모양이 유지됩니다.
+
 스크롤·색상 개선판 debug APK는 [`android/app/build/outputs/apk/debug/Dashboard-scroll-colors-debug.apk`](../android/app/build/outputs/apk/debug/Dashboard-scroll-colors-debug.apk)입니다. `app-debug.apk`와 내용이 같은 복사본입니다. USB·클라우드 드라이브 등으로 폰에 옮겨 파일 앱에서 열거나, USB 디버깅이 허용된 기기에서 `adb install -r Dashboard-scroll-colors-debug.apk`로 설치합니다. 기존 앱을 업데이트할 때는 앱을 삭제하거나 데이터를 지우지 마세요. 같은 앱 서명 키의 APK를 덮어 설치하면 연결 설정·암호화 토큰·캐시·위젯별 모양을 유지합니다. 폰에서 출처를 알 수 없는 앱 설치를 요청하면 APK를 연 파일 앱에 한해 설치를 허용한 뒤 설치 후 다시 끌 수 있습니다. 이 파일은 debug 빌드입니다. APK를 다시 빌드하려면 프로젝트 루트의 `android/`에서 Windows는 `gradlew.bat assembleDebug`, macOS/Linux는 `./gradlew assembleDebug`를 실행합니다.
 
 ## 2. GitHub 연결
