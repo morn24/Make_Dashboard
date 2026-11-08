@@ -3,7 +3,7 @@
 // 2) 알림: Apps Script가 알릴 시각에 내용 없는 푸시(신호)만 보내면, 여기서 할 일을 읽어 알림을 만든다.
 importScripts('rules.js');
 
-const CACHE = 'dash-shell-v14';
+const CACHE = 'dash-shell-v15';
 const PRIVATE_CACHE = 'dash-private'; // 앱이 넣어 둔 연결 정보(cfg). 버전이 바뀌어도 지우지 않는다
 const SHELL = ['./', 'index.html', 'style.css', 'rules.js', 'app.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/badge-96.png'];
@@ -22,12 +22,12 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// 네트워크 우선, 실패하면 캐시 (배포하면 바로 새 버전이 보이도록)
+// 네트워크 우선(브라우저 HTTP 캐시도 재검증), 실패하면 캐시 (배포하면 바로 새 버전이 보이도록)
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' }) // GitHub Pages max-age=600을 건너뛰고 서버에 확인
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
