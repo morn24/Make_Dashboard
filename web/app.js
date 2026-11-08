@@ -656,7 +656,7 @@ function renderTabs() {
 const JOB_ICON = { ok: '✓', running: '⟳', wait: '…', warn: '!', error: '✕' };
 const PMR_STALE_H = 7; // PC는 바뀐 게 없어도 6시간마다 올린다. 이보다 오래되면 PC 꺼짐·동기화 멈춤
 const CMD_LABEL = { start: 'AI에게 맡기기', hold: '공부 안 함', unhold: '되돌리기' };
-const REQ_LABEL = { pending: 'AI 대기', running: 'AI 진행 중', done: 'AI 정리 완료', failed: 'AI 실패' };
+const REQ_LABEL = { pending: 'AI 대기', running: 'AI 진행 중', done: 'AI 1차', failed: 'AI 실패' };
 
 function fmtStamp(iso) {
   if (!iso) return '';
@@ -692,14 +692,16 @@ function renderPmr() {
   // 학습 후보: 표 순서가 곧 우선순위 (야간 자동 학습이 이 순서로, 최근 30일 요청은 건너뛰고 고른다)
   const l = w.learning || {};
   const topics = Array.isArray(l.topics) ? l.topics : [];
-  const live = topics.filter((t) => t.status !== '보류');
-  const held = topics.filter((t) => t.status === '보류');
-  const nextT = live.find((t) => t.id === l.nextAuto);
-  $('learn-count').textContent = live.length ? `${live.length}개` : '';
+  const { upper, waiting, held } = splitLearning(topics, l.nextAuto);
+  const nextT = upper.find((t) => t.id === l.nextAuto);
+  $('learn-count').textContent = waiting.length ? `위쪽 ${upper.length}개 · 대기 ${waiting.length}개` : (upper.length ? `${upper.length}개` : '');
   $('learn-next').textContent = nextT
     ? `다음 야간 자동 학습: ${nextT.id} ${nextT.topic}${l.busy ? ' (진행 중인 요청이 끝난 뒤)' : ''}`
     : '다음 야간 자동 학습: 없음 — 모든 후보를 최근 30일 안에 요청했어요';
-  $('learn-list').replaceChildren(...live.map((t) => renderTopic(t, l.nextAuto)));
+  $('learn-list').replaceChildren(...upper.map((t) => renderTopic(t, l.nextAuto)));
+  $('learn-wait').hidden = !waiting.length;
+  $('learn-wait-title').textContent = `AI가 한 번 본 후보 ${waiting.length}개 (자동 재시도 대기)`;
+  $('learn-wait-list').replaceChildren(...waiting.map((t) => renderTopic(t, l.nextAuto)));
   $('learn-held').hidden = !held.length;
   $('learn-held-title').textContent = `보류 ${held.length}개 (공부 안 함)`;
   $('learn-held-list').replaceChildren(...held.map((t) => renderTopic(t, null)));
@@ -735,13 +737,19 @@ function renderTopic(t, nextAuto) {
   const req = t.request;
   if (t.id === nextAuto) badges.append(el('span', { class: 'tag' }, '다음 자동'));
   if (req && (req.status === 'pending' || req.status === 'running')) badges.append(el('span', { class: 'tag busy' }, REQ_LABEL[req.status]));
-  else if (req) badges.append(el('span', { class: `tag${req.status === 'failed' ? ' bad' : ' muted'}` }, `${REQ_LABEL[req.status] || req.status} ${String(req.updatedAt || '').slice(5, 10)}`));
-  if (t.cooldownUntil) badges.append(el('span', { class: 'tag muted' }, `~${t.cooldownUntil.slice(5)} 쉼`));
+  else if (req) {
+    // 'done'은 그날 야간 학습이 한 번 다뤘다는 뜻이지 공백이 다 채워졌다는 뜻이 아니다. 30일 대기 중이면 그렇게 밝힌다
+    const day = String(req.updatedAt || '').slice(5, 10);
+    const text = req.status === 'done' && t.cooldownUntil ? `${REQ_LABEL.done} ${day} · 공백 남음` : `${REQ_LABEL[req.status] || req.status} ${day}`;
+    badges.append(el('span', { class: `tag${req.status === 'failed' ? ' bad' : ' muted'}` }, text));
+  }
+  if (t.cooldownUntil) badges.append(el('span', { class: 'tag muted' }, `${t.cooldownUntil.slice(5)}부터 자동 재시도`));
   const waiting = (state.pmrCmd.items || []).filter((c) => c.status === 'pending' && c.target === t.id);
   for (const c of waiting) badges.append(el('span', { class: 'tag busy' }, `${CMD_LABEL[c.action]} · PC 반영 대기`));
   details.append(el('summary', {},
     el('span', { class: 'tp-id' }, t.status === '보류' ? t.id : `${t.rank ?? ''}. ${t.id}`),
-    el('span', { class: 'tp-main' }, el('span', { class: 'tp-title' }, t.topic), badges)));
+    el('span', { class: 'tp-main' }, el('span', { class: 'tp-title' }, t.topic),
+      ...(t.remaining ? [el('span', { class: 'tp-remaining' }, `남은 것: ${t.remaining}`)] : []), badges)));
 
   const body = el('div', { class: 'tp-body' });
   if (t.status === '학습중') body.append(el('p', {}, el('b', {}, '학습중')));
